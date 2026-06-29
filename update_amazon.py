@@ -183,6 +183,10 @@ def build(df: pd.DataFrame):
 
     rep.freeze_panes = "D2"
 
+    # Forceer Excel om bij openen alle formules te herberekenen (anders blijven de
+    # cellen leeg omdat openpyxl geen voorberekende waarden meeschrijft).
+    wb.calculation.fullCalcOnLoad = True
+
     os.makedirs(os.path.dirname(OUTPUT), exist_ok=True)
     wb.save(OUTPUT)
     return len(dates)
