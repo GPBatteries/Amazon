@@ -41,7 +41,6 @@ jobs:
 
       - name: Formules doorrekenen en waarden inbakken
         run: |
-          # Zet LibreOffice op "altijd herberekenen bij openen"
           mkdir -p ~/.config/libreoffice/4/user
           cat > ~/.config/libreoffice/4/user/registrymodifications.xcu << 'XCU'
           <?xml version="1.0" encoding="UTF-8"?>
@@ -55,25 +54,28 @@ jobs:
           cp _recalc/*.xlsx output/
           rm -rf _recalc
 
-      - name: Commit output (voor historie + lokale git pull)
+      - name: Data en Excel versleutelen
+        env:
+          SITE_PASSWORD: ${{ secrets.SITE_PASSWORD }}
+        run: python encrypt_site.py
+
+      - name: Commit output (alleen ciphertext)
         continue-on-error: true
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add output/
+          git add -A output/
           git diff --staged --quiet || (git commit -m "Amazon data update $(date -u +%Y-%m-%d)" && git push)
 
       - name: Site klaarzetten
         run: |
           mkdir -p _site/output
           cp index.html _site/
-          cp -r output/* _site/output/
+          cp output/*.enc _site/output/
 
       - uses: actions/configure-pages@v5
-
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
-
       - id: deployment
         uses: actions/deploy-pages@v4
