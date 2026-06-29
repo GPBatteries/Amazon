@@ -8,14 +8,25 @@
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
-  :root{
-    --bg:#0e1117; --card:#161b22; --line:#262c36;
-    --txt:#e6edf3; --muted:#8b949e; --accent:#2ea043; --accent2:#3fb950;
-  }
+  :root{--bg:#0e1117;--card:#161b22;--line:#262c36;--txt:#e6edf3;--muted:#8b949e;--accent:#2ea043;--accent2:#3fb950;--err:#f85149}
   *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:'Manrope',system-ui,sans-serif;background:var(--bg);color:var(--txt);
-    min-height:100vh;padding:32px 20px;}
-  .wrap{max-width:1040px;margin:0 auto}
+  body{font-family:'Manrope',system-ui,sans-serif;background:var(--bg);color:var(--txt);min-height:100vh;padding:32px 20px}
+
+  /* GATE */
+  #gate{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;padding:20px;background:var(--bg);z-index:10}
+  .gatecard{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:40px;max-width:380px;width:100%;text-align:center}
+  .gatecard .lock{width:42px;height:42px;color:var(--accent2);margin-bottom:14px}
+  .gatecard .tag{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
+  .gatecard h1{font-size:22px;font-weight:800;margin:4px 0 22px}
+  .gatecard input{width:100%;padding:13px 15px;border-radius:10px;border:1px solid var(--line);background:#0e1117;color:var(--txt);font-family:'Manrope';font-size:15px;outline:none}
+  .gatecard input:focus{border-color:var(--accent)}
+  .gatecard button{width:100%;margin-top:12px;padding:13px;border-radius:10px;border:none;background:var(--accent);color:#fff;font-weight:600;font-size:15px;cursor:pointer;font-family:'Manrope';transition:.15s}
+  .gatecard button:hover{background:var(--accent2)}
+  .gatecard button:disabled{opacity:.6;cursor:default}
+  .gateerr{color:var(--err);font-size:13px;margin-top:12px;min-height:18px}
+
+  /* APP */
+  #app{display:none;max-width:1040px;margin:0 auto}
   header{display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px;margin-bottom:20px}
   .ttl .tag{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
   .ttl h1{font-size:26px;font-weight:800;margin-top:2px}
@@ -25,9 +36,7 @@
   .tabs{display:flex;gap:6px;background:var(--card);border:1px solid var(--line);border-radius:11px;padding:5px;width:max-content;margin-bottom:22px}
   .tabs button{font-family:inherit;font-size:14px;font-weight:600;color:var(--muted);background:none;border:none;padding:9px 18px;border-radius:8px;cursor:pointer;transition:.15s}
   .tabs button.active{background:var(--accent);color:#fff}
-
-  .panel{display:none}
-  .panel.active{display:block}
+  .panel{display:none}.panel.active{display:block}
 
   .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px}
   .kpi{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:16px 18px}
@@ -53,24 +62,36 @@
   .dlcard .row{display:flex;justify-content:space-between;font-size:14px}
   .dlcard .row span:first-child{color:var(--muted)}
   .dlcard .row span:last-child{font-family:'JetBrains Mono',monospace}
-  a.btn{display:flex;align-items:center;justify-content:center;gap:10px;margin-top:24px;padding:15px;border-radius:11px;
-    text-decoration:none;background:var(--accent);color:#fff;font-weight:600;font-size:16px;transition:.15s}
+  a.btn{display:flex;align-items:center;justify-content:center;gap:10px;margin-top:24px;padding:15px;border-radius:11px;text-decoration:none;background:var(--accent);color:#fff;font-weight:600;font-size:16px;cursor:pointer;transition:.15s}
   a.btn:hover{background:var(--accent2)}
   a.btn svg{width:18px;height:18px}
   .foot{margin-top:16px;text-align:center;font-size:12px;color:var(--muted)}
-
   @media(max-width:720px){.kpis{grid-template-columns:repeat(2,1fr)}}
 </style>
 </head>
 <body>
-<div class="wrap">
+
+<!-- WACHTWOORDSCHERM -->
+<div id="gate">
+  <div class="gatecard">
+    <svg class="lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+    <div class="tag">Amazon Daily</div>
+    <h1>Beveiligd</h1>
+    <input id="pw" type="password" placeholder="Wachtwoord" autocomplete="current-password" autofocus>
+    <button id="unlock">Ontgrendelen</button>
+    <div class="gateerr" id="gateerr"></div>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app">
   <header>
     <div class="ttl">
       <div class="tag">Amazon Daily</div>
       <h1>Salesrapport</h1>
-      <div class="asin" id="asin">B00CO00Y32</div>
+      <div class="asin" id="asin">-</div>
     </div>
-    <div class="upd">Laatst bijgewerkt<br><span id="updated">laden...</span></div>
+    <div class="upd">Laatst bijgewerkt<br><span id="updated">-</span></div>
   </header>
 
   <div class="tabs">
@@ -78,7 +99,6 @@
     <button id="tab-dl" onclick="show('dl')">Download</button>
   </div>
 
-  <!-- DASHBOARD -->
   <div id="panel-dash" class="panel active">
     <div class="kpis">
       <div class="kpi"><div class="lbl">Laatste datum</div><div class="val mono" id="k-date">-</div></div>
@@ -86,29 +106,19 @@
       <div class="kpi"><div class="lbl">Units (laatste dag)</div><div class="val" id="k-units">-</div></div>
       <div class="kpi"><div class="lbl">Marge % (laatste dag)</div><div class="val" id="k-margin">-</div></div>
     </div>
-
-    <div class="box">
-      <h2>Sales &pound; per dag</h2>
-      <div class="chartwrap"><canvas id="chart"></canvas></div>
-    </div>
-
+    <div class="box"><h2>Sales &pound; per dag</h2><div class="chartwrap"><canvas id="chart"></canvas></div></div>
     <div class="box">
       <h2>Dagdata <span id="rowcount" style="color:var(--muted)"></span></h2>
-      <div class="tablewrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Datum</th><th>Sales #</th><th>Sales &pound;</th><th>RSP gross</th><th>RSP net</th>
-              <th>Comm+Ad</th><th>Marge %</th><th>Marge abs</th><th>Marge Tot.</th><th>CVR</th>
-            </tr>
-          </thead>
-          <tbody id="tbody"></tbody>
-        </table>
-      </div>
+      <div class="tablewrap"><table>
+        <thead><tr>
+          <th>Datum</th><th>Sales #</th><th>Sales &pound;</th><th>RSP gross</th><th>RSP net</th>
+          <th>Comm+Ad</th><th>Marge %</th><th>Marge abs</th><th>Marge Tot.</th><th>CVR</th>
+        </tr></thead>
+        <tbody id="tbody"></tbody>
+      </table></div>
     </div>
   </div>
 
-  <!-- DOWNLOAD -->
   <div id="panel-dl" class="panel">
     <div class="dlcard">
       <div class="meta">
@@ -116,20 +126,56 @@
         <div class="row"><span>Laatste datum</span><span id="dl-lastdate">-</span></div>
         <div class="row"><span>Aantal dagen</span><span id="dl-days">-</span></div>
       </div>
-      <a class="btn" id="download" href="output/Amazon_B00CO00Y32.xlsx" download>
+      <a class="btn" id="download">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        Download Excel
+        <span id="dl-label">Download Excel</span>
       </a>
-      <div class="foot">Opent direct in Excel met de actuele cijfers.</div>
+      <div class="foot">Ontsleuteld in je browser. Opent in Excel met de actuele cijfers.</div>
     </div>
   </div>
 </div>
 
 <script>
 const bust = '?t=' + Date.now();
+const enc = new TextEncoder();
+let PW = null;          // wachtwoord blijft alleen in geheugen, deze sessie
+let ASIN = 'data';
+
 const gbp = v => '\u00a3' + v.toLocaleString('nl-NL',{minimumFractionDigits:2,maximumFractionDigits:2});
 const pct = v => (v*100).toLocaleString('nl-NL',{minimumFractionDigits:1,maximumFractionDigits:1}) + '%';
 const num = v => v.toLocaleString('nl-NL');
+
+async function deriveKey(password, salt, usage){
+  const base = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    {name:'PBKDF2', salt, iterations:200000, hash:'SHA-256'},
+    base, {name:'AES-GCM', length:256}, false, [usage]);
+}
+async function decryptFile(url, password){
+  const buf = new Uint8Array(await (await fetch(url)).arrayBuffer());
+  const salt = buf.slice(0,16), iv = buf.slice(16,28), ct = buf.slice(28);
+  const key = await deriveKey(password, salt, 'decrypt');
+  return crypto.subtle.decrypt({name:'AES-GCM', iv}, key, ct);  // werpt bij fout wachtwoord
+}
+
+async function unlock(){
+  const pw = document.getElementById('pw').value;
+  const errEl = document.getElementById('gateerr');
+  const btn = document.getElementById('unlock');
+  if(!pw) return;
+  btn.disabled = true; btn.textContent = 'Ontgrendelen...'; errEl.textContent = '';
+  try{
+    const plain = await decryptFile('output/payload.enc' + bust, pw);
+    const data = JSON.parse(new TextDecoder().decode(plain));
+    PW = pw;
+    render(data);
+    document.getElementById('gate').style.display = 'none';
+    document.getElementById('app').style.display = 'block';
+  }catch(e){
+    errEl.textContent = 'Onjuist wachtwoord';
+    btn.disabled = false; btn.textContent = 'Ontgrendelen';
+  }
+}
 
 function show(t){
   document.getElementById('panel-dash').classList.toggle('active', t==='dash');
@@ -138,59 +184,61 @@ function show(t){
   document.getElementById('tab-dl').classList.toggle('active', t==='dl');
 }
 
-fetch('output/meta.json' + bust).then(r=>r.json()).then(m=>{
-  document.getElementById('asin').textContent = m.asin;
-  document.getElementById('updated').textContent = m.generated_utc;
-  document.getElementById('dl-updated').textContent = m.generated_utc;
-  document.getElementById('dl-lastdate').textContent = m.last_date;
-  document.getElementById('dl-days').textContent = m.days;
-  document.getElementById('download').href = 'output/' + m.file + bust;
-}).catch(()=>{document.getElementById('updated').textContent='onbekend';});
+function render(d){
+  ASIN = d.asin;
+  document.getElementById('asin').textContent = d.asin;
+  document.getElementById('updated').textContent = d.generated_utc;
+  document.getElementById('dl-updated').textContent = d.generated_utc;
+  document.getElementById('dl-lastdate').textContent = d.last_date;
+  document.getElementById('dl-days').textContent = d.days;
 
-fetch('output/data.json' + bust).then(r=>r.json()).then(d=>{
   const rows = d.rows;
   if(!rows.length) return;
   const last = rows[rows.length-1];
-
   document.getElementById('k-date').textContent = last.date;
   document.getElementById('k-sales').textContent = gbp(last.sales);
   document.getElementById('k-units').textContent = num(last.units);
   document.getElementById('k-margin').textContent = pct(last.marginPct);
   document.getElementById('rowcount').textContent = '(' + rows.length + ' dagen)';
 
-  // tabel, nieuwste bovenaan
-  const tb = document.getElementById('tbody');
-  tb.innerHTML = rows.slice().reverse().map(r => `
-    <tr>
-      <td>${r.date}</td>
-      <td>${num(r.units)}</td>
-      <td>${gbp(r.sales)}</td>
-      <td>${gbp(r.grossRsp)}</td>
-      <td>${gbp(r.netRsp)}</td>
-      <td>${gbp(r.commission)}</td>
-      <td class="pos">${pct(r.marginPct)}</td>
-      <td>${gbp(r.marginAbs)}</td>
-      <td>${gbp(r.marginTot)}</td>
-      <td>${r.cvr.toLocaleString('nl-NL',{maximumFractionDigits:1})}%</td>
-    </tr>`).join('');
+  document.getElementById('tbody').innerHTML = rows.slice().reverse().map(r => `
+    <tr><td>${r.date}</td><td>${num(r.units)}</td><td>${gbp(r.sales)}</td>
+    <td>${gbp(r.grossRsp)}</td><td>${gbp(r.netRsp)}</td><td>${gbp(r.commission)}</td>
+    <td class="pos">${pct(r.marginPct)}</td><td>${gbp(r.marginAbs)}</td><td>${gbp(r.marginTot)}</td>
+    <td>${r.cvr.toLocaleString('nl-NL',{maximumFractionDigits:1})}%</td></tr>`).join('');
 
-  // grafiek
   if(window.Chart){
-    new Chart(document.getElementById('chart'), {
+    new Chart(document.getElementById('chart'),{
       type:'line',
-      data:{ labels: rows.map(r=>r.date),
-        datasets:[{ data: rows.map(r=>r.sales), borderColor:'#3fb950',
-          backgroundColor:'rgba(63,185,80,.12)', fill:true, tension:.3,
-          pointRadius:3, pointBackgroundColor:'#3fb950', borderWidth:2 }]},
-      options:{ responsive:true, maintainAspectRatio:false,
-        plugins:{legend:{display:false},
-          tooltip:{callbacks:{label:c=>gbp(c.parsed.y)}}},
-        scales:{
-          x:{ grid:{color:'#262c36'}, ticks:{color:'#8b949e',maxRotation:0,autoSkip:true,maxTicksLimit:10}},
-          y:{ grid:{color:'#262c36'}, ticks:{color:'#8b949e',callback:v=>'\u00a3'+v}}}}
+      data:{labels:rows.map(r=>r.date),datasets:[{data:rows.map(r=>r.sales),borderColor:'#3fb950',
+        backgroundColor:'rgba(63,185,80,.12)',fill:true,tension:.3,pointRadius:3,pointBackgroundColor:'#3fb950',borderWidth:2}]},
+      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},
+        tooltip:{callbacks:{label:c=>gbp(c.parsed.y)}}},
+        scales:{x:{grid:{color:'#262c36'},ticks:{color:'#8b949e',maxRotation:0,autoSkip:true,maxTicksLimit:10}},
+        y:{grid:{color:'#262c36'},ticks:{color:'#8b949e',callback:v=>'\u00a3'+v}}}}
     });
   }
-}).catch(e=>console.error(e));
+}
+
+async function downloadExcel(){
+  if(!PW) return;
+  const lbl = document.getElementById('dl-label');
+  const old = lbl.textContent; lbl.textContent = 'Ontsleutelen...';
+  try{
+    const buf = await decryptFile('output/file.enc' + bust, PW);
+    const blob = new Blob([buf], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'Amazon_' + ASIN + '.xlsx';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }catch(e){ alert('Ontsleutelen mislukt.'); }
+  lbl.textContent = old;
+}
+
+document.getElementById('unlock').addEventListener('click', unlock);
+document.getElementById('pw').addEventListener('keydown', e => { if(e.key==='Enter') unlock(); });
+document.getElementById('download').addEventListener('click', downloadExcel);
 </script>
 </body>
 </html>
