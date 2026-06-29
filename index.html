@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Amazon Daily</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0e1117; --card:#161b22; --line:#262c36;
+    --txt:#e6edf3; --muted:#8b949e; --accent:#2ea043; --accent2:#3fb950;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    font-family:'Manrope',system-ui,sans-serif;background:var(--bg);color:var(--txt);
+    min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;
+  }
+  .card{
+    background:var(--card);border:1px solid var(--line);border-radius:16px;
+    padding:40px;max-width:440px;width:100%;
+  }
+  .tag{
+    font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--muted);
+    letter-spacing:.04em;text-transform:uppercase;
+  }
+  h1{font-size:26px;font-weight:700;margin:6px 0 4px}
+  .asin{font-family:'JetBrains Mono',monospace;color:var(--accent2);font-size:15px}
+  .meta{margin:24px 0;border-top:1px solid var(--line);padding-top:20px;display:grid;gap:10px}
+  .row{display:flex;justify-content:space-between;font-size:14px}
+  .row span:first-child{color:var(--muted)}
+  .row span:last-child{font-family:'JetBrains Mono',monospace}
+  a.btn{
+    display:flex;align-items:center;justify-content:center;gap:10px;
+    margin-top:28px;padding:15px;border-radius:11px;text-decoration:none;
+    background:var(--accent);color:#fff;font-weight:600;font-size:16px;
+    transition:background .15s ease;
+  }
+  a.btn:hover{background:var(--accent2)}
+  a.btn svg{width:18px;height:18px}
+  .foot{margin-top:18px;text-align:center;font-size:12px;color:var(--muted)}
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="tag">Amazon Daily</div>
+    <h1>Salesrapport</h1>
+    <div class="asin" id="asin">B00CO00Y32</div>
+
+    <div class="meta">
+      <div class="row"><span>Laatst bijgewerkt</span><span id="updated">laden...</span></div>
+      <div class="row"><span>Laatste datum</span><span id="lastdate">-</span></div>
+      <div class="row"><span>Aantal dagen</span><span id="days">-</span></div>
+    </div>
+
+    <a class="btn" id="download" href="output/Amazon_B00CO00Y32.xlsx" download>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      Download Excel
+    </a>
+    <div class="foot">Opent direct in Excel met de actuele cijfers.</div>
+  </div>
+
+<script>
+  const bust = '?t=' + Date.now();
+  fetch('output/meta.json' + bust)
+    .then(r => r.ok ? r.json() : Promise.reject())
+    .then(m => {
+      document.getElementById('asin').textContent = m.asin;
+      document.getElementById('updated').textContent = m.generated_utc;
+      document.getElementById('lastdate').textContent = m.last_date;
+      document.getElementById('days').textContent = m.days;
+      const dl = document.getElementById('download');
+      dl.href = 'output/' + m.file + bust;
+    })
+    .catch(() => {
+      document.getElementById('updated').textContent = 'onbekend';
+    });
+</script>
+</body>
+</html>
