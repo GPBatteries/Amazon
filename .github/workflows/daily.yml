@@ -34,6 +34,25 @@ jobs:
       - name: Excel bouwen
         run: python update_amazon.py
 
+      - name: LibreOffice installeren
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libreoffice-calc
+
+      - name: Formules doorrekenen en waarden inbakken
+        run: |
+          # Zet LibreOffice op "altijd herberekenen bij openen"
+          mkdir -p ~/.config/libreoffice/4/user
+          cat > ~/.config/libreoffice/4/user/registrymodifications.xcu << 'XCU'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <oor:items xmlns:oor="http://openoffice.org/2001/registry" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+           <item oor:path="/org.openoffice.Office.Calc/Formula/Load"><prop oor:name="ODFRecalcMode" oor:op="fuse"><value>0</value></prop></item>
+           <item oor:path="/org.openoffice.Office.Calc/Formula/Load"><prop oor:name="OOXMLRecalcMode" oor:op="fuse"><value>0</value></prop></item>
+          </oor:items>
+          XCU
+          rm -rf _recalc && mkdir _recalc
+          soffice --headless --calc --convert-to xlsx --outdir _recalc output/*.xlsx
+          cp _recalc/*.xlsx output/
+          rm -rf _recalc
+
       - name: Commit output (voor historie + lokale git pull)
         continue-on-error: true
         run: |
