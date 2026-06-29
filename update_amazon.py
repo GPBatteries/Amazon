@@ -192,21 +192,67 @@ def build(df: pd.DataFrame):
     return len(dates)
 
 # ----------------------------------------------------------------------------
+# Cijfers berekenen (identiek aan de Excel-formules) voor data.json / dashboard
+# ----------------------------------------------------------------------------
+def compute_rows(df: pd.DataFrame):
+    rows = []
+    for _, r in df.iterrows():
+        units = float(r["unitsOrdered"])
+        sales = float(r["orderedProductSales"])
+        gross = sales / units if units else 0.0
+        net = gross / (1 + VAT_RATE)
+        commission = COMMISSION_ADFEE_PCT * gross
+        margin_abs = net - commission - FBA - COGS
+        margin_pct = (margin_abs / net) if net else 0.0
+        rows.append({
+            "date": str(r["date"]),
+            "units": units,
+            "sales": sales,
+            "grossRsp": gross,
+            "netRsp": net,
+            "commission": commission,
+            "fba": FBA,
+            "cogs": COGS,
+            "marginPct": margin_pct,
+            "marginAbs": margin_abs,
+            "marginTot": margin_abs * units,
+            "cvr": float(r["unitSessionPercentage"]),
+        })
+    return rows
+
+
+# ----------------------------------------------------------------------------
 def main():
     df = load_daily_imp()
     if df.empty:
         raise SystemExit(f"Geen rijen gevonden voor ASIN {ASIN}.")
     n = build(df)
+    generated = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     meta = {
         "asin": ASIN,
         "file": f"Amazon_{ASIN}.xlsx",
-        "generated_utc": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+        "generated_utc": generated,
         "days": n,
         "rows": int(len(df)),
         "last_date": str(max(df["date"])),
     }
     with open(os.path.join("output", "meta.json"), "w", encoding="utf-8") as fh:
         json.dump(meta, fh, ensure_ascii=False, indent=2)
+
+    data = {
+        "asin": ASIN,
+        "generated_utc": generated,
+        "assumptions": {
+            "vat": VAT_RATE,
+            "commissionPct": COMMISSION_ADFEE_PCT,
+            "fba": FBA,
+            "cogs": COGS,
+        },
+        "rows": compute_rows(df),
+    }
+    with open(os.path.join("output", "data.json"), "w", encoding="utf-8") as fh:
+        json.dump(data, fh, ensure_ascii=False)
+
     print(f"OK: {OUTPUT} ({n} dagkolommen, {len(df)} bronrijen voor {ASIN})")
 
 if __name__ == "__main__":
