@@ -136,7 +136,6 @@
 </div>
 
 <script>
-const bust = '?t=' + Date.now();
 const enc = new TextEncoder();
 let PW = null;          // wachtwoord blijft alleen in geheugen, deze sessie
 let ASIN = 'data';
@@ -151,9 +150,26 @@ async function deriveKey(password, salt, usage){
     {name:'PBKDF2', salt, iterations:200000, hash:'SHA-256'},
     base, {name:'AES-GCM', length:256}, false, [usage]);
 }
-async function decryptFile(url, password){
-  const buf = new Uint8Array(await (await fetch(url)).arrayBuffer());
-  const salt = buf.slice(0,16), iv = buf.slice(16,28), ct = buf.slice(28);
+// Data wordt eerst uit de repo (laatste commit) gehaald, met fallback naar de
+// Pages-kopie. Zo is de data altijd vers bij openen, ook als een Pages-deployment
+// faalt. Pas owner/repo/branch aan als je die wijzigt.
+const RAW = 'https://raw.githubusercontent.com/GPBatteries/Amazon/main/output/';
+const LOCAL = 'output/';
+
+async function fetchEnc(name){
+  const bust = '?t=' + Date.now();
+  try{
+    const r = await fetch(RAW + name + bust, {cache:'no-store'});
+    if(r.ok) return await r.arrayBuffer();
+  }catch(e){ /* val terug op de lokale kopie */ }
+  const r2 = await fetch(LOCAL + name + bust, {cache:'no-store'});
+  if(!r2.ok) throw new Error('bestand niet gevonden');
+  return await r2.arrayBuffer();
+}
+
+async function decryptBuf(buf, password){
+  const data = new Uint8Array(buf);
+  const salt = data.slice(0,16), iv = data.slice(16,28), ct = data.slice(28);
   const key = await deriveKey(password, salt, 'decrypt');
   return crypto.subtle.decrypt({name:'AES-GCM', iv}, key, ct);  // werpt bij fout wachtwoord
 }
@@ -165,7 +181,7 @@ async function unlock(){
   if(!pw) return;
   btn.disabled = true; btn.textContent = 'Ontgrendelen...'; errEl.textContent = '';
   try{
-    const plain = await decryptFile('output/payload.enc' + bust, pw);
+    const plain = await decryptBuf(await fetchEnc('payload.enc'), pw);
     const data = JSON.parse(new TextDecoder().decode(plain));
     PW = pw;
     render(data);
@@ -225,7 +241,7 @@ async function downloadExcel(){
   const lbl = document.getElementById('dl-label');
   const old = lbl.textContent; lbl.textContent = 'Ontsleutelen...';
   try{
-    const buf = await decryptFile('output/file.enc' + bust, PW);
+    const buf = await decryptBuf(await fetchEnc('file.enc'), PW);
     const blob = new Blob([buf], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
