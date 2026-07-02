@@ -1,25 +1,15 @@
 name: Daily Amazon update
 
 on:
-  # Triggeren gebeurt extern via cron-job.org (workflow_dispatch), zodat de timing
-  # betrouwbaar is en er niet twee runs tegelijk deployen. Geen GitHub-cron meer.
+  # Triggeren gebeurt extern via cron-job.org (workflow_dispatch).
   workflow_dispatch:
 
 permissions:
   contents: write
-  pages: write
-  id-token: write
-
-concurrency:
-  group: "pages"
-  cancel-in-progress: false
 
 jobs:
-  build-deploy:
+  build:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
 
@@ -56,23 +46,9 @@ jobs:
           SITE_PASSWORD: ${{ secrets.SITE_PASSWORD }}
         run: python encrypt_site.py
 
-      - name: Commit output (alleen ciphertext)
-        continue-on-error: true
+      - name: Commit naar main (GitHub Pages deployt dit zelf)
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A output/
           git diff --staged --quiet || (git commit -m "Amazon data update $(date -u +%Y-%m-%d)" && git push)
-
-      - name: Site klaarzetten
-        run: |
-          mkdir -p _site/output
-          cp index.html _site/
-          cp output/*.enc _site/output/
-
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: _site
-      - id: deployment
-        uses: actions/deploy-pages@v4
