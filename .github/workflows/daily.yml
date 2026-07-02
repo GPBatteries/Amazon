@@ -1,11 +1,8 @@
 name: Daily Amazon update
 
 on:
-  schedule:
-    # GitHub-cron draait in UTC en kent geen zomer/wintertijd. Twee regels houden
-    # het jaarrond op 12:01 NL (net na de update van 12:00 stipt):
-    - cron: '1 10 * * *'   # 12:01 in zomertijd (CEST, UTC+2)
-    - cron: '1 11 * * *'   # 12:01 in wintertijd (CET, UTC+1)
+  # Triggeren gebeurt extern via cron-job.org (workflow_dispatch), zodat de timing
+  # betrouwbaar is en er niet twee runs tegelijk deployen. Geen GitHub-cron meer.
   workflow_dispatch:
 
 permissions:
