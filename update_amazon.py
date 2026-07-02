@@ -1,6 +1,7 @@
 import os
 import io
 import json
+import time
 import datetime as dt
 
 import requests
@@ -39,7 +40,11 @@ def load_daily_imp() -> pd.DataFrame:
     if local:
         df = pd.read_csv(local)
     else:
-        r = requests.get(CSV_URL, timeout=60)
+        # Cache-buster + no-cache headers: dwingt Google een verse export te geven
+        # in plaats van een gecachte versie die de nieuwste rij nog mist.
+        url = f"{CSV_URL}&_cb={int(time.time())}"
+        r = requests.get(url, timeout=60,
+                         headers={"Cache-Control": "no-cache", "Pragma": "no-cache"})
         r.raise_for_status()
         df = pd.read_csv(io.StringIO(r.text))
 
