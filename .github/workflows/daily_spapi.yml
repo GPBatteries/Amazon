@@ -8,8 +8,19 @@ name: Daily Amazon update (SP-API)
 
 on:
   # Triggeren gebeurt extern via cron-job.org (workflow_dispatch), net als
-  # bij de bestaande "Daily Amazon update".
+  # bij de bestaande "Daily Amazon update". start/end zijn optioneel: leeg
+  # laten = alleen gisteren ophalen (normale dagelijkse run). Invullen =
+  # eenmalige terugvul-run over die periode (1 apart rapport per dag).
   workflow_dispatch:
+    inputs:
+      start:
+        description: "Startdatum voor terugvullen (YYYY-MM-DD, leeg = gisteren)"
+        required: false
+        default: ""
+      end:
+        description: "Einddatum voor terugvullen (YYYY-MM-DD, leeg = zelfde als start)"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -27,12 +38,19 @@ jobs:
       - name: Dependencies
         run: pip install -r requirements.txt
 
-      - name: Sales/traffic van gisteren ophalen via SP-API
+      - name: Sales/traffic ophalen via SP-API
         env:
           LWA_CLIENT_ID: ${{ secrets.LWA_CLIENT_ID }}
           LWA_CLIENT_SECRET: ${{ secrets.LWA_CLIENT_SECRET }}
           SPAPI_REFRESH_TOKEN: ${{ secrets.SPAPI_REFRESH_TOKEN }}
-        run: python fetch_spapi_daily.py
+          START_INPUT: ${{ github.event.inputs.start }}
+          END_INPUT: ${{ github.event.inputs.end }}
+        run: |
+          ARGS=""
+          if [ -n "$START_INPUT" ]; then ARGS="$ARGS --start $START_INPUT"; fi
+          if [ -n "$END_INPUT" ]; then ARGS="$ARGS --end $END_INPUT"; fi
+          echo "Gebruikte argumenten: $ARGS"
+          python fetch_spapi_daily.py $ARGS
 
       - name: Excel bouwen (uit spapi_history.csv)
         env:
