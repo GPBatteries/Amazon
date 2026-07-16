@@ -222,6 +222,39 @@ def upsert_history(new_rows: list[dict]):
             writer.writerow(existing[date_key])
 
 
+def get_product_name(access_token: str) -> str | None:
+    """
+    Haalt de productnaam op via de Catalog Items API (2022-04-01), los van de
+    sales/traffic-data. Geeft None terug als het niet lukt (bv. ontbrekende rol) --
+    dan valt het dashboard gewoon terug op de kale ASIN, niks breekt.
+    """
+    r = requests.get(
+        f"{BASE_URL}/catalog/2022-04-01/items/{ASIN}",
+        headers={"x-amz-access-token": access_token},
+        params={"marketplaceIds": MARKETPLACE_ID, "includedData": "summaries"},
+        timeout=30,
+    )
+    if r.status_code != 200:
+        print(f"   Kon productnaam niet ophalen (HTTP {r.status_code}): {r.text[:200]}")
+        print("   Mogelijk mist de app de rol 'Product Listing' -- dashboard toont dan gewoon de ASIN.")
+        return None
+    summaries = r.json().get("summaries", [])
+    for s in summaries:
+        if s.get("marketplaceId") == MARKETPLACE_ID and s.get("itemName"):
+            return s["itemName"]
+    if summaries and summaries[0].get("itemName"):
+        return summaries[0]["itemName"]
+    return None
+
+
+def save_product_meta(name: str | None):
+    path = os.path.join("output", "product_meta.json")
+    os.makedirs("output", exist_ok=True)
+    import json
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump({"asin": ASIN, "productName": name}, fh, ensure_ascii=False, indent=2)
+
+
 # ----------------------------------------------------------------------------
 def daterange(start: dt.date, end: dt.date):
     d = start
@@ -255,9 +288,24 @@ def main():
     access_token = get_access_token()
     print(f"OK: access token opgehaald. Periode: {start} t/m {end}.")
 
+    print("-> Productnaam ophalen via Catalog Items API ...")
+    product_name = get_product_name(access_token)
+    if product_name:
+        print(f"   OK: '{product_name}'")
+    save_product_meta(product_name)
+
+    already_have = set()
+    if os.path.exists(HISTORY_CSV):
+        with open(HISTORY_CSV, newline="", encoding="utf-8") as fh:
+            already_have = {row["date"] for row in csv.DictReader(fh)}
+
     ok_count = 0
+    skip_count = 0
     failed_days = []
     for day in daterange(start, end):
+        if str(day) in already_have:
+            skip_count += 1
+            continue
         print(f"-> Rapport aanvragen voor {day} ...")
         try:
             report_id = request_report(access_token, day)
@@ -282,7 +330,7 @@ def main():
 
         time.sleep(8)  # pauze tussen rapportaanvragen i.v.m. rate limits (naast de retry-logica hierboven)
 
-    print(f"\nKlaar: {ok_count} dag(en) succesvol weggeschreven naar {HISTORY_CSV}.")
+    print(f"\nKlaar: {ok_count} dag(en) succesvol opgehaald, {skip_count} dag(en) al aanwezig (overgeslagen).")
     if failed_days:
         print(f"LET OP: {len(failed_days)} dag(en) mislukt en overgeslagen: {', '.join(failed_days)}")
         print("Draai het script later opnieuw met --start/--end over (een deel van) deze dagen om ze alsnog op te halen.")
