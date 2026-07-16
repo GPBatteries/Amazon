@@ -10,9 +10,9 @@ Er worden geen geheimen geprint. GitHub maskeert secretwaarden bovendien in de l
 import os
 import requests
 
-CID = os.environ["LWA_CLIENT_ID"]
-CS = os.environ["LWA_CLIENT_SECRET"]
-RT = os.environ["SPAPI_REFRESH_TOKEN"]
+CID = os.environ["LWA_CLIENT_ID"].strip()
+CS = os.environ["LWA_CLIENT_SECRET"].strip()
+RT = os.environ["SPAPI_REFRESH_TOKEN"].strip()
 
 # --- Tijdelijke debug: check op verborgen whitespace/afkapping, zonder geheimen te printen ---
 def _debug_check(name, value):
