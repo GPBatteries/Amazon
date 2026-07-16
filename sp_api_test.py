@@ -14,6 +14,22 @@ CID = os.environ["LWA_CLIENT_ID"]
 CS = os.environ["LWA_CLIENT_SECRET"]
 RT = os.environ["SPAPI_REFRESH_TOKEN"]
 
+# --- Tijdelijke debug: check op verborgen whitespace/afkapping, zonder geheimen te printen ---
+def _debug_check(name, value):
+    stripped = value.strip()
+    print(f"[debug] {name}: lengte={len(value)}, na strip()={len(stripped)}, "
+          f"begint_met_whitespace={value != value.lstrip()}, "
+          f"eindigt_met_whitespace={value != value.rstrip()}, "
+          f"bevat_newline={'\\n' in value or '\\r' in value}")
+
+_debug_check("LWA_CLIENT_ID", CID)
+_debug_check("LWA_CLIENT_SECRET", CS)
+_debug_check("SPAPI_REFRESH_TOKEN", RT)
+print(f"[debug] CID begint met 'amzn1.application-oa2-client': {CID.startswith('amzn1.application-oa2-client')}")
+print(f"[debug] RT begint met 'Atzr|': {RT.startswith('Atzr|')}")
+print("-" * 60)
+# --- Einde debug ---
+
 ENDPOINTS = {
     "NA (Noord-Amerika)": "https://sellingpartnerapi-na.amazon.com",
     "EU (Europa, incl. UK)": "https://sellingpartnerapi-eu.amazon.com",
