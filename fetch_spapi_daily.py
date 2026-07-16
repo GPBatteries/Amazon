@@ -286,6 +286,7 @@ def main():
     end = parse_date(args.end) if args.end else start
 
     access_token = get_access_token()
+    token_obtained_at = time.time()
     print(f"OK: access token opgehaald. Periode: {start} t/m {end}.")
 
     print("-> Productnaam ophalen via Catalog Items API ...")
@@ -302,10 +303,17 @@ def main():
     ok_count = 0
     skip_count = 0
     failed_days = []
+    TOKEN_MAX_AGE_S = 50 * 60  # LWA-tokens zijn ~1 uur geldig; ruim voor verloop verversen
     for day in daterange(start, end):
         if str(day) in already_have:
             skip_count += 1
             continue
+        # Bij lange terugvul-runs verloopt het token halverwege (na ~1 uur) --
+        # hier proactief verversen zodat we nooit "access token expired" tegenkomen.
+        if time.time() - token_obtained_at > TOKEN_MAX_AGE_S:
+            print("   Access token wordt oud, nieuw token ophalen...")
+            access_token = get_access_token()
+            token_obtained_at = time.time()
         print(f"-> Rapport aanvragen voor {day} ...")
         try:
             report_id = request_report(access_token, day)
@@ -313,12 +321,26 @@ def main():
             report_json = download_report(access_token, doc_id)
             row = extract_row(report_json, day)
         except Exception as e:
-            # Niet meteen de hele run laten crashen: deze dag overslaan, wel
-            # doorgaan met de rest, en de tot nu toe opgehaalde dagen blijven
-            # zo behouden (zie upsert_history hieronder, per dag).
-            print(f"   FOUT bij {day}: {e}. Deze dag wordt overgeslagen, ga door met de rest.")
-            failed_days.append(str(day))
-            continue
+            if "expired" in str(e).lower() or "unauthorized" in str(e).lower():
+                print("   Token blijkt toch verlopen te zijn, eenmalig verversen en deze dag opnieuw proberen...")
+                access_token = get_access_token()
+                token_obtained_at = time.time()
+                try:
+                    report_id = request_report(access_token, day)
+                    doc_id = poll_report(access_token, report_id)
+                    report_json = download_report(access_token, doc_id)
+                    row = extract_row(report_json, day)
+                except Exception as e2:
+                    print(f"   FOUT bij {day} (ook na verversen token): {e2}. Deze dag wordt overgeslagen.")
+                    failed_days.append(str(day))
+                    continue
+            else:
+                # Niet meteen de hele run laten crashen: deze dag overslaan, wel
+                # doorgaan met de rest, en de tot nu toe opgehaalde dagen blijven
+                # zo behouden (zie upsert_history hieronder, per dag).
+                print(f"   FOUT bij {day}: {e}. Deze dag wordt overgeslagen, ga door met de rest.")
+                failed_days.append(str(day))
+                continue
 
         if row is None:
             print(f"   Geen data voor ASIN {ASIN} op {day} (mogelijk geen sales die dag).")
