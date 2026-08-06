@@ -1,0 +1,40 @@
+name: Ads spend test
+
+on:
+  workflow_dispatch:
+    inputs:
+      start:
+        description: "Startdatum (YYYY-MM-DD, leeg = gisteren)"
+        required: false
+        default: ""
+      end:
+        description: "Einddatum (YYYY-MM-DD, leeg = zelfde als start)"
+        required: false
+        default: ""
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Dependencies
+        run: pip install requests
+      - name: Ads spend ophalen
+        env:
+          ADS_CLIENT_ID: ${{ secrets.ADS_CLIENT_ID }}
+          ADS_CLIENT_SECRET: ${{ secrets.ADS_CLIENT_SECRET }}
+          ADS_REFRESH_TOKEN: ${{ secrets.ADS_REFRESH_TOKEN }}
+          ADS_PROFILE_ID: ${{ secrets.ADS_PROFILE_ID }}
+          START_INPUT: ${{ github.event.inputs.start }}
+          END_INPUT: ${{ github.event.inputs.end }}
+        run: |
+          ARGS=""
+          if [ -n "$START_INPUT" ]; then ARGS="$ARGS --start $START_INPUT"; fi
+          if [ -n "$END_INPUT" ]; then ARGS="$ARGS --end $END_INPUT"; fi
+          echo "Gebruikte argumenten: $ARGS"
+          python fetch_ads_spend.py $ARGS
+      - name: Resultaat tonen
+        run: cat output/ads_spend_history.csv || echo "Nog geen CSV aangemaakt."
