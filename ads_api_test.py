@@ -28,6 +28,21 @@ CS = os.environ["ADS_CLIENT_SECRET"].strip()
 RT = os.environ["ADS_REFRESH_TOKEN"].strip()
 EXPECTED_PROFILE_ID = os.environ.get("ADS_PROFILE_ID", "").strip()
 
+# --- Tijdelijke debug: check op verborgen whitespace/aanhalingstekens, zonder geheimen te printen ---
+def _debug_check(name, value):
+    stripped = value.strip()
+    print(f"[debug] {name}: lengte={len(value)}, na strip()={len(stripped)}, "
+          f"bevat_aanhalingsteken={chr(34) in value or chr(39) in value}, "
+          f"bevat_newline={chr(10) in value or chr(13) in value}")
+
+_debug_check("ADS_CLIENT_ID", CID)
+_debug_check("ADS_CLIENT_SECRET", CS)
+_debug_check("ADS_REFRESH_TOKEN", RT)
+print(f"[debug] CID begint met 'amzn1.application-oa2-client': {CID.startswith('amzn1.application-oa2-client')}")
+print(f"[debug] RT begint met 'Atzr|': {RT.startswith('Atzr|')}")
+print("-" * 60)
+# --- Einde debug ---
+
 REGIONS = {
     "NA (Noord-Amerika)": "https://advertising-api.amazon.com",
     "EU (Europa, incl. UK)": "https://advertising-api-eu.amazon.com",
