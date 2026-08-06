@@ -51,8 +51,9 @@ def load_campaign_mapping() -> dict:
     """
     Leest campaign_mapping.json (indien aanwezig): {"campaigns": {"<id>": "<asin>"}}.
     Campagnes die hierin staan, worden ALTIJD aan het genoemde ASIN toegewezen,
-    ongeacht het advertisedAsin-veld in het rapport. Ontbreekt het bestand of
-    een campagne-ID erin, dan valt terug op de gewone advertisedAsin-matching.
+    Campagnes die hierin staan, worden ALTIJD aan het genoemde ASIN toegewezen.
+    Ontbreekt het bestand of een campagne-ID erin, dan valt terug op de
+    standaardmethode: ASIN herkennen in de campagnenaam zelf.
     """
     if not os.path.exists(CAMPAIGN_MAPPING_FILE):
         return {}
@@ -120,7 +121,6 @@ def request_report(access_token: str, day: dt.date) -> str:
             "groupBy": ["advertiser"],
             "columns": [
                 "date",
-                "advertisedAsin",
                 "campaignId",
                 "campaignName",
                 "cost",
@@ -202,30 +202,33 @@ def extract_row(rows: list, day: dt.date, campaign_mapping: dict) -> dict:
     Telt alle campagnes voor ASIN B00CO00Y32 die dag bij elkaar op (er kunnen
     meerdere Sponsored Products-campagnes tegelijk voor hetzelfde product lopen).
 
-    Matching-logica per campagne:
+    Matching-logica per campagne, in deze volgorde:
       1. Staat het campaignId in campaign_mapping.json? -> die koppeling geldt
-         altijd (override), ongeacht advertisedAsin.
-      2. Staat het er niet in? -> gewone automatische matching op advertisedAsin.
+         altijd (override), voor uitzonderingsgevallen.
+      2. Anders (de normale situatie): staat het ASIN letterlijk in de
+         campagnenaam, bv. "SP - KW - Exact - ... - B00CO00Y32 - MAG (aa
+         batteries)"? -> meetellen. Dit is de standaardmethode, want alle
+         campagnes in dit account hebben het ASIN in de naam staan.
 
-    Let op: veldnamen (advertisedAsin, cost, sales14d, purchases14d) zijn
-    gebaseerd op de officiële v3-documentatie -- als deze functie altijd 0
-    teruggeeft terwijl je weet dat er spend was, print dan eenmalig de ruwe
-    'rows'-inhoud om de daadwerkelijke veldnamen te controleren.
+    Let op: veldnamen (cost, sales14d, purchases14d) zijn gebaseerd op de
+    officiële v3-documentatie -- als deze functie altijd 0 teruggeeft terwijl
+    je weet dat er spend was, print dan eenmalig de ruwe 'rows'-inhoud om de
+    daadwerkelijke veldnamen te controleren.
     """
     spend = clicks = impressions = sales = orders = 0
-    matched_via_override = matched_via_asin = 0
+    matched_via_override = matched_via_name = 0
     for row in rows:
         campaign_id = str(row.get("campaignId", ""))
+        campaign_name = row.get("campaignName", "") or ""
+
         if campaign_id in campaign_mapping:
-            # Override: telt alleen mee als de mapping dit ASIN aanwijst.
             if campaign_mapping[campaign_id] != ASIN:
                 continue
             matched_via_override += 1
+        elif ASIN in campaign_name:
+            matched_via_name += 1
         else:
-            # Geen override bekend voor deze campagne -> gewone automatische matching.
-            if row.get("advertisedAsin") != ASIN:
-                continue
-            matched_via_asin += 1
+            continue
 
         spend += row.get("cost", 0) or 0
         clicks += row.get("clicks", 0) or 0
@@ -235,6 +238,8 @@ def extract_row(rows: list, day: dt.date, campaign_mapping: dict) -> dict:
 
     if matched_via_override:
         print(f"   ({matched_via_override} campagne(s) meegeteld via campaign_mapping.json-override)")
+    if matched_via_name:
+        print(f"   ({matched_via_name} campagne(s) meegeteld via ASIN in campagnenaam)")
     return {
         "date": str(day),
         "childAsin": ASIN,

@@ -1,0 +1,6 @@
+{
+  "_toelichting": "Standaard wordt spend automatisch aan een ASIN toegewezen door te kijken of het ASIN letterlijk in de campagnenaam staat (bv. '...- B00CO00Y32 - MAG (aa batteries)'). Dit bestand is alleen nodig voor UITZONDERINGEN: campagnes waarvan de naam geen ASIN bevat, of waarvan je de koppeling liever handmatig vastzet. Campagne-ID's hieronder worden dan ALTIJD aan het genoemde ASIN toegewezen, ongeacht de naam. Campagnes die hier niet in staan, blijven gewoon automatisch gematcht via de naam.",
+  "campaigns": {
+    "VUL_CAMPAGNE_ID_HIER_IN": "B00CO00Y32"
+  }
+}
