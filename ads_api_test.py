@@ -105,9 +105,9 @@ def main():
             currency = p.get("currencyCode", "?")
             profile_id = p.get("profileId")
             account_type = p.get("accountInfo", {}).get("type", "?")
-            marker = "  <-- UK" if country == "GB" else ""
+            marker = "  <-- UK" if country in ("GB", "UK") else ""
             print(f"   - {country} ({currency})  profileId={profile_id}  type={account_type}{marker}")
-            if country == "GB":
+            if country in ("GB", "UK"):
                 found_uk = True
                 if EXPECTED_PROFILE_ID and str(profile_id) == EXPECTED_PROFILE_ID:
                     print("     (komt overeen met ADS_PROFILE_ID secret)")
