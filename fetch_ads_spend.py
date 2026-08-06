@@ -44,6 +44,25 @@ import requests
 ASIN = "B00CO00Y32"
 BASE_URL = "https://advertising-api-eu.amazon.com"  # EU-regio, bevestigd via ads_api_test.py
 
+CAMPAIGN_MAPPING_FILE = "campaign_mapping.json"
+
+
+def load_campaign_mapping() -> dict:
+    """
+    Leest campaign_mapping.json (indien aanwezig): {"campaigns": {"<id>": "<asin>"}}.
+    Campagnes die hierin staan, worden ALTIJD aan het genoemde ASIN toegewezen,
+    ongeacht het advertisedAsin-veld in het rapport. Ontbreekt het bestand of
+    een campagne-ID erin, dan valt terug op de gewone advertisedAsin-matching.
+    """
+    if not os.path.exists(CAMPAIGN_MAPPING_FILE):
+        return {}
+    import json
+    with open(CAMPAIGN_MAPPING_FILE, encoding="utf-8") as fh:
+        data = json.load(fh)
+    mapping = data.get("campaigns", {})
+    # Placeholder-waarde uit het voorbeeldbestand nooit als echte koppeling gebruiken
+    return {k: v for k, v in mapping.items() if k != "VUL_CAMPAGNE_ID_HIER_IN"}
+
 HISTORY_CSV = os.path.join("output", "ads_spend_history.csv")
 FIELDNAMES = ["date", "childAsin", "adSpend", "adClicks", "adImpressions", "adSales14d", "adOrders14d"]
 
@@ -135,12 +154,13 @@ def request_report(access_token: str, day: dt.date) -> str:
     raise RuntimeError(f"Rapport aanvragen bleef 429 geven voor {day} na {max_attempts} pogingen.")
 
 
-def poll_report(access_token: str, report_id: str, timeout_s: int = 180) -> str:
+def poll_report(access_token: str, report_id: str, timeout_s: int = 900) -> str:
     """Wacht tot het rapport klaar is. Geeft de download-url terug."""
     deadline = time.time() + timeout_s
     attempt = 0
     headers = _headers(access_token)
     headers["Content-Type"] = "application/json"  # GET heeft geen create-content-type nodig
+    last_status = None
     while time.time() < deadline:
         attempt += 1
         r = requests.get(f"{BASE_URL}/reporting/reports/{report_id}", headers=headers, timeout=30)
@@ -152,12 +172,16 @@ def poll_report(access_token: str, report_id: str, timeout_s: int = 180) -> str:
         r.raise_for_status()
         data = r.json()
         status = data.get("status")
+        if status != last_status:
+            print(f"   Status: {status} (na {int(time.time() - (deadline - timeout_s))}s wachten)")
+            last_status = status
         if status == "COMPLETED":
             return data["url"]
-        if status == "FAILURE":
+        if status in ("FAILURE", "FAILED", "CANCELLED"):
             raise RuntimeError(f"Rapport genereren mislukt: {data}")
-        time.sleep(5)
-    raise RuntimeError("Timeout: rapport was na 3 minuten nog niet klaar.")
+        time.sleep(15)
+    raise RuntimeError(f"Timeout: rapport was na {timeout_s // 60} minuten nog niet klaar "
+                        f"(laatste status: {last_status}).")
 
 
 def download_report(url: str) -> list:
@@ -173,24 +197,44 @@ def download_report(url: str) -> list:
 
 
 # ----------------------------------------------------------------------------
-def extract_row(rows: list, day: dt.date) -> dict:
+def extract_row(rows: list, day: dt.date, campaign_mapping: dict) -> dict:
     """
     Telt alle campagnes voor ASIN B00CO00Y32 die dag bij elkaar op (er kunnen
     meerdere Sponsored Products-campagnes tegelijk voor hetzelfde product lopen).
+
+    Matching-logica per campagne:
+      1. Staat het campaignId in campaign_mapping.json? -> die koppeling geldt
+         altijd (override), ongeacht advertisedAsin.
+      2. Staat het er niet in? -> gewone automatische matching op advertisedAsin.
+
     Let op: veldnamen (advertisedAsin, cost, sales14d, purchases14d) zijn
     gebaseerd op de officiële v3-documentatie -- als deze functie altijd 0
     teruggeeft terwijl je weet dat er spend was, print dan eenmalig de ruwe
     'rows'-inhoud om de daadwerkelijke veldnamen te controleren.
     """
     spend = clicks = impressions = sales = orders = 0
+    matched_via_override = matched_via_asin = 0
     for row in rows:
-        if row.get("advertisedAsin") != ASIN:
-            continue
+        campaign_id = str(row.get("campaignId", ""))
+        if campaign_id in campaign_mapping:
+            # Override: telt alleen mee als de mapping dit ASIN aanwijst.
+            if campaign_mapping[campaign_id] != ASIN:
+                continue
+            matched_via_override += 1
+        else:
+            # Geen override bekend voor deze campagne -> gewone automatische matching.
+            if row.get("advertisedAsin") != ASIN:
+                continue
+            matched_via_asin += 1
+
         spend += row.get("cost", 0) or 0
         clicks += row.get("clicks", 0) or 0
         impressions += row.get("impressions", 0) or 0
         sales += row.get("sales14d", 0) or 0
         orders += row.get("purchases14d", 0) or 0
+
+    if matched_via_override:
+        print(f"   ({matched_via_override} campagne(s) meegeteld via campaign_mapping.json-override)")
     return {
         "date": str(day),
         "childAsin": ASIN,
@@ -249,6 +293,10 @@ def main():
     token_obtained_at = time.time()
     print(f"OK: access token opgehaald. Periode: {start} t/m {end}.")
 
+    campaign_mapping = load_campaign_mapping()
+    if campaign_mapping:
+        print(f"OK: {len(campaign_mapping)} campagne-override(s) geladen uit {CAMPAIGN_MAPPING_FILE}.")
+
     already_have = set()
     if os.path.exists(HISTORY_CSV):
         with open(HISTORY_CSV, newline="", encoding="utf-8") as fh:
@@ -272,7 +320,7 @@ def main():
             report_id = request_report(access_token, day)
             download_url = poll_report(access_token, report_id)
             rows = download_report(download_url)
-            row = extract_row(rows, day)
+            row = extract_row(rows, day, campaign_mapping)
         except Exception as e:
             print(f"   FOUT bij {day}: {e}. Deze dag wordt overgeslagen, ga door met de rest.")
             failed_days.append(str(day))
