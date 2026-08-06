@@ -4,10 +4,12 @@ Amazon Ads API, en zet ze in output/ads_spend_history.csv.
 
 Waar de data vandaan komt:
   Amazon Ads Reporting API v3 (POST/GET /reporting/reports), rapporttype
-  "spAdvertisedProduct" (Sponsored Products, per geadverteerd ASIN). Dit
-  rapport geeft per dag per ASIN: cost (spend), clicks, impressions,
+  "spCampaigns" (Sponsored Products, per campagne). Dit
+  rapport geeft per dag per CAMPAGNE: cost (spend), clicks, impressions,
   sales14d (omzet toe te schrijven aan de advertentie, 14-dagen venster)
-  en purchases14d (aantal orders daaruit).
+  en purchases14d (aantal orders daaruit). De koppeling naar het ASIN
+  gebeurt door te kijken of het ASIN in de campagnenaam voorkomt (zie
+  extract_row) -- niet via een apart ASIN-veld in het rapport zelf.
 
   Dit is bewust ANDERS dan de sales/traffic-cijfers uit fetch_spapi_daily.py
   (die gaan over ALLE verkopen, organisch + advertentie samen). Deze data
@@ -111,14 +113,14 @@ def _retry_wait(response: requests.Response, attempt: int) -> int:
 
 # ----------------------------------------------------------------------------
 def request_report(access_token: str, day: dt.date) -> str:
-    """Vraagt het spAdvertisedProduct-rapport aan voor 1 dag. Geeft reportId terug."""
+    """Vraagt het spCampaigns-rapport aan voor 1 dag. Geeft reportId terug."""
     body = {
         "name": f"SP advertised product report {day}",
         "startDate": str(day),
         "endDate": str(day),
         "configuration": {
             "adProduct": "SPONSORED_PRODUCTS",
-            "groupBy": ["advertiser"],
+            "groupBy": ["campaign"],
             "columns": [
                 "date",
                 "campaignId",
@@ -129,11 +131,12 @@ def request_report(access_token: str, day: dt.date) -> str:
                 "sales14d",
                 "purchases14d",
             ],
-            "reportTypeId": "spAdvertisedProduct",
+            "reportTypeId": "spCampaigns",
             "timeUnit": "DAILY",
             "format": "GZIP_JSON",
         },
     }
+    print(f"   Request body: {body}")
     max_attempts = 5
     for attempt in range(1, max_attempts + 1):
         r = requests.post(
