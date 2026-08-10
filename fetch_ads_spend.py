@@ -3,9 +3,16 @@ Haalt de dagelijkse advertentiekosten (spend) en advertentie-omzet op via de
 Amazon Ads API, en zet ze in output/ads_spend_history.csv.
 
 Waar de data vandaan komt:
-  Amazon Ads Reporting API v3 (POST/GET /reporting/reports), rapporttype
-  "spCampaigns" (Sponsored Products, per campagne). Dit
-  rapport geeft per dag per CAMPAGNE: cost (spend), clicks, impressions,
+  Amazon Ads Reporting API v3 (POST/GET /reporting/reports), voor ALLE DRIE
+  de advertentietypes die Amazon aanbiedt (anders mis je spend!):
+    - Sponsored Products (SP)  -> reportTypeId "spCampaigns"
+    - Sponsored Brands (SB)    -> reportTypeId "sbCampaigns"
+    - Sponsored Display (SD)   -> reportTypeId "sdCampaigns"
+  Elk type heeft zijn eigen rapport en zijn eigen campagnelijst-endpoint (SB
+  en SD delen namelijk geen campaign-ID-ruimte met SP). Per dag wordt voor
+  elk van de 3 types een los rapport aangevraagd en bij elkaar opgeteld.
+
+  Dit rapport geeft per dag per CAMPAGNE: cost (spend), clicks, impressions,
   sales14d (omzet toe te schrijven aan de advertentie, 14-dagen venster)
   en purchases14d (aantal orders daaruit). De koppeling naar het ASIN
   gebeurt door te kijken of het ASIN in de campagnenaam voorkomt (zie
@@ -28,11 +35,14 @@ Gebruik:
   python fetch_ads_spend.py                          -> haalt gisteren op
   python fetch_ads_spend.py --start 2026-04-01 --end 2026-07-15  -> periode
 
-Let op -- net als bij fetch_spapi_daily.py kon ik dit hier niet live testen
-(geen toegang tot Amazon's servers vanuit deze omgeving). De opbouw van het
-verzoek (kolomnamen, reportTypeId) is gebaseerd op de officiële v3-documentatie,
-maar kan in de praktijk een klein detail afwijken -- zie extract_row() als
-er 0 resultaten verschijnen terwijl je weet dat er wel spend was die dag.
+Let op -- de Sponsored Products-kant (rapport + campagnelijst) is inmiddels
+live getest en bevestigd correct. De Sponsored Brands- en Sponsored
+Display-kant zijn NIEUW en nog niet live getest (ik heb geen toegang tot
+Amazon's servers vanuit deze omgeving) -- de endpoints/kolomnamen zijn
+gebaseerd op de officiële documentatie maar kunnen in de praktijk een detail
+afwijken. Als een van de twee faalt, print het script duidelijk welke en
+waarom (zie get_campaign_names en request_report), zodat we dat gericht
+kunnen bijstellen zonder dat de SP-cijfers geraakt worden.
 """
 import os
 import csv
@@ -48,11 +58,18 @@ BASE_URL = "https://advertising-api-eu.amazon.com"  # EU-regio, bevestigd via ad
 
 CAMPAIGN_MAPPING_FILE = "campaign_mapping.json"
 
+# De 3 advertentietypes die Amazon aanbiedt. Elk heeft een eigen reportTypeId
+# en een eigen campagnelijst-endpoint (zie get_campaign_names).
+AD_PRODUCTS = [
+    {"key": "SPONSORED_PRODUCTS", "reportTypeId": "spCampaigns", "label": "Sponsored Products"},
+    {"key": "SPONSORED_BRANDS", "reportTypeId": "sbCampaigns", "label": "Sponsored Brands"},
+    {"key": "SPONSORED_DISPLAY", "reportTypeId": "sdCampaigns", "label": "Sponsored Display"},
+]
+
 
 def load_campaign_mapping() -> dict:
     """
     Leest campaign_mapping.json (indien aanwezig): {"campaigns": {"<id>": "<asin>"}}.
-    Campagnes die hierin staan, worden ALTIJD aan het genoemde ASIN toegewezen,
     Campagnes die hierin staan, worden ALTIJD aan het genoemde ASIN toegewezen.
     Ontbreekt het bestand of een campagne-ID erin, dan valt terug op de
     standaardmethode: ASIN herkennen in de campagnenaam zelf.
@@ -66,6 +83,7 @@ def load_campaign_mapping() -> dict:
     # Placeholder-waarde uit het voorbeeldbestand nooit als echte koppeling gebruiken
     return {k: v for k, v in mapping.items() if k != "VUL_CAMPAGNE_ID_HIER_IN"}
 
+
 HISTORY_CSV = os.path.join("output", "ads_spend_history.csv")
 FIELDNAMES = ["date", "childAsin", "adSpend", "adClicks", "adImpressions", "adSales14d", "adOrders14d"]
 
@@ -73,6 +91,104 @@ CID = os.environ["ADS_CLIENT_ID"].strip()
 CS = os.environ["ADS_CLIENT_SECRET"].strip()
 RT = os.environ["ADS_REFRESH_TOKEN"].strip()
 PROFILE_ID = os.environ["ADS_PROFILE_ID"].strip()
+
+
+def _base_headers(access_token: str) -> dict:
+    return {
+        "Authorization": f"Bearer {access_token}",
+        "Amazon-Advertising-API-ClientId": CID,
+        "Amazon-Advertising-API-Scope": PROFILE_ID,
+    }
+
+
+def get_campaign_names_sp(access_token: str) -> dict:
+    """Sponsored Products campagnelijst (bevestigd werkend, live getest)."""
+    headers = {
+        **_base_headers(access_token),
+        "Content-Type": "application/vnd.spCampaign.v3+json",
+        "Accept": "application/vnd.spCampaign.v3+json",
+    }
+    mapping = {}
+    next_token = None
+    while True:
+        body = {"maxResults": 200}
+        if next_token:
+            body["nextToken"] = next_token
+        r = requests.post(f"{BASE_URL}/sp/campaigns/list", headers=headers, json=body, timeout=30)
+        if r.status_code != 200:
+            print(f"   [SP] Kon campagnelijst niet ophalen (HTTP {r.status_code}): {r.text[:200]}")
+            return mapping
+        data = r.json()
+        for c in data.get("campaigns", []):
+            mapping[str(c.get("campaignId"))] = c.get("name", "")
+        next_token = data.get("nextToken")
+        if not next_token:
+            break
+    return mapping
+
+
+def get_campaign_names_sb(access_token: str) -> dict:
+    """
+    Sponsored Brands campagnelijst. NOG NIET LIVE GETEST -- endpoint/media-type
+    gebaseerd op documentatie. Faalt dit, dan printen we duidelijk waarom en
+    gaat de rest van het script gewoon door (SP-cijfers blijven intact).
+    """
+    headers = {
+        **_base_headers(access_token),
+        "Content-Type": "application/vnd.sbcampaignresource.v4+json",
+        "Accept": "application/vnd.sbcampaignresource.v4+json",
+    }
+    mapping = {}
+    next_token = None
+    while True:
+        params = {"maxResults": 200}
+        if next_token:
+            params["nextToken"] = next_token
+        r = requests.get(f"{BASE_URL}/sb/v4/campaigns", headers=headers, params=params, timeout=30)
+        if r.status_code != 200:
+            print(f"   [SB] Kon campagnelijst niet ophalen (HTTP {r.status_code}): {r.text[:200]}")
+            return mapping
+        data = r.json()
+        campaigns = data.get("campaigns", data if isinstance(data, list) else [])
+        for c in campaigns:
+            mapping[str(c.get("campaignId"))] = c.get("name", "")
+        next_token = data.get("nextToken") if isinstance(data, dict) else None
+        if not next_token:
+            break
+    return mapping
+
+
+def get_campaign_names_sd(access_token: str) -> dict:
+    """
+    Sponsored Display campagnelijst. NOG NIET LIVE GETEST -- endpoint
+    gebaseerd op documentatie. Faalt dit, dan printen we duidelijk waarom en
+    gaat de rest van het script gewoon door (SP-cijfers blijven intact).
+    """
+    headers = {**_base_headers(access_token), "Accept": "application/json"}
+    r = requests.get(f"{BASE_URL}/sd/campaigns", headers=headers, timeout=30)
+    if r.status_code != 200:
+        print(f"   [SD] Kon campagnelijst niet ophalen (HTTP {r.status_code}): {r.text[:200]}")
+        return {}
+    campaigns = r.json()
+    return {str(c.get("campaignId")): c.get("name", "") for c in campaigns}
+
+
+def get_campaign_names(access_token: str) -> dict:
+    """
+    Haalt campaignId -> campaignName op voor alle 3 advertentietypes, via
+    (snelle, niet-asynchrone) campagnelijst-APIs -- in plaats van deze namen
+    als kolom in het trage async-rapport op te vragen (Amazon-support: dat
+    maakt rapporten traag of laat ze eindeloos in PENDING blijven staan).
+    """
+    mapping = {}
+    for label, fn in (("SP", get_campaign_names_sp), ("SB", get_campaign_names_sb), ("SD", get_campaign_names_sd)):
+        try:
+            sub = fn(access_token)
+            print(f"   [{label}] {len(sub)} campagne(s) gevonden.")
+            mapping.update(sub)
+        except Exception as e:
+            print(f"   [{label}] Fout bij ophalen campagnelijst: {e}. Wordt overgeslagen.")
+    return mapping
 
 
 # ----------------------------------------------------------------------------
@@ -94,9 +210,7 @@ def get_access_token() -> str:
 
 def _headers(access_token: str) -> dict:
     return {
-        "Authorization": f"Bearer {access_token}",
-        "Amazon-Advertising-API-ClientId": CID,
-        "Amazon-Advertising-API-Scope": PROFILE_ID,
+        **_base_headers(access_token),
         "Content-Type": "application/vnd.createasyncreportrequest.v3+json",
     }
 
@@ -112,31 +226,29 @@ def _retry_wait(response: requests.Response, attempt: int) -> int:
 
 
 # ----------------------------------------------------------------------------
-def request_report(access_token: str, day: dt.date) -> str:
-    """Vraagt het spCampaigns-rapport aan voor 1 dag. Geeft reportId terug."""
+def request_report(access_token: str, day: dt.date, ad_product: str, report_type_id: str) -> str:
+    """Vraagt een campagne-rapport aan voor 1 dag + 1 advertentietype. Geeft reportId terug."""
     body = {
-        "name": f"SP advertised product report {day}",
+        "name": f"{report_type_id} report {day}",
         "startDate": str(day),
         "endDate": str(day),
         "configuration": {
-            "adProduct": "SPONSORED_PRODUCTS",
+            "adProduct": ad_product,
             "groupBy": ["campaign"],
             "columns": [
                 "date",
                 "campaignId",
-                "campaignName",
                 "cost",
                 "clicks",
                 "impressions",
                 "sales14d",
                 "purchases14d",
             ],
-            "reportTypeId": "spCampaigns",
+            "reportTypeId": report_type_id,
             "timeUnit": "DAILY",
             "format": "GZIP_JSON",
         },
     }
-    print(f"   Request body: {body}")
     max_attempts = 5
     for attempt in range(1, max_attempts + 1):
         r = requests.post(
@@ -149,17 +261,25 @@ def request_report(access_token: str, day: dt.date) -> str:
             return r.json()["reportId"]
         if r.status_code == 429 and attempt < max_attempts:
             wait = _retry_wait(r, attempt)
-            print(f"   Rate limit (429) bij aanvragen rapport {day}. "
+            print(f"   Rate limit (429) bij aanvragen {report_type_id}-rapport {day}. "
                   f"Poging {attempt}/{max_attempts}, {wait}s wachten...")
             time.sleep(wait)
             continue
-        raise RuntimeError(f"Rapport aanvragen mislukt ({day}): HTTP {r.status_code}: {r.text[:300]}")
-    raise RuntimeError(f"Rapport aanvragen bleef 429 geven voor {day} na {max_attempts} pogingen.")
+        raise RuntimeError(f"{report_type_id}-rapport aanvragen mislukt ({day}): HTTP {r.status_code}: {r.text[:300]}")
+    raise RuntimeError(f"{report_type_id}-rapport bleef 429 geven voor {day} na {max_attempts} pogingen.")
 
 
-def poll_report(access_token: str, report_id: str, timeout_s: int = 900) -> str:
-    """Wacht tot het rapport klaar is. Geeft de download-url terug."""
+def poll_report(access_token: str, report_id: str, timeout_s: int = 3600) -> str:
+    """
+    Wacht tot het rapport klaar is. Geeft de download-url terug.
+    Amazon-support: rapporten kunnen tot 3 uur duren, maar met 3 rapporten
+    per dag (SP+SB+SD) houden we het per rapport op max 1 uur -- anders kan
+    de totale wachttijd de 6-uurs hard-limit van GitHub-hosted runners
+    overschrijden. Duurt 1 type te lang, dan wordt alleen dat type voor die
+    dag overgeslagen (zie main()); de andere 2 tellen dan gewoon mee.
+    """
     deadline = time.time() + timeout_s
+    start_time = time.time()
     attempt = 0
     headers = _headers(access_token)
     headers["Content-Type"] = "application/json"  # GET heeft geen create-content-type nodig
@@ -176,13 +296,14 @@ def poll_report(access_token: str, report_id: str, timeout_s: int = 900) -> str:
         data = r.json()
         status = data.get("status")
         if status != last_status:
-            print(f"   Status: {status} (na {int(time.time() - (deadline - timeout_s))}s wachten)")
+            elapsed_min = int((time.time() - start_time) / 60)
+            print(f"   Status: {status} (na {elapsed_min} min wachten)")
             last_status = status
         if status == "COMPLETED":
             return data["url"]
         if status in ("FAILURE", "FAILED", "CANCELLED"):
             raise RuntimeError(f"Rapport genereren mislukt: {data}")
-        time.sleep(15)
+        time.sleep(60)
     raise RuntimeError(f"Timeout: rapport was na {timeout_s // 60} minuten nog niet klaar "
                         f"(laatste status: {last_status}).")
 
@@ -200,7 +321,7 @@ def download_report(url: str) -> list:
 
 
 # ----------------------------------------------------------------------------
-def extract_row(rows: list, day: dt.date, campaign_mapping: dict) -> dict:
+def extract_row(rows: list, day: dt.date, campaign_mapping: dict, campaign_names: dict) -> dict:
     """
     Telt alle campagnes voor ASIN B00CO00Y32 die dag bij elkaar op (er kunnen
     meerdere Sponsored Products-campagnes tegelijk voor hetzelfde product lopen).
@@ -209,20 +330,14 @@ def extract_row(rows: list, day: dt.date, campaign_mapping: dict) -> dict:
       1. Staat het campaignId in campaign_mapping.json? -> die koppeling geldt
          altijd (override), voor uitzonderingsgevallen.
       2. Anders (de normale situatie): staat het ASIN letterlijk in de
-         campagnenaam, bv. "SP - KW - Exact - ... - B00CO00Y32 - MAG (aa
-         batteries)"? -> meetellen. Dit is de standaardmethode, want alle
-         campagnes in dit account hebben het ASIN in de naam staan.
-
-    Let op: veldnamen (cost, sales14d, purchases14d) zijn gebaseerd op de
-    officiële v3-documentatie -- als deze functie altijd 0 teruggeeft terwijl
-    je weet dat er spend was, print dan eenmalig de ruwe 'rows'-inhoud om de
-    daadwerkelijke veldnamen te controleren.
+         campagnenaam (opgezocht via campaign_names, apart ophaald -- zie
+         get_campaign_names)? -> meetellen.
     """
     spend = clicks = impressions = sales = orders = 0
     matched_via_override = matched_via_name = 0
     for row in rows:
         campaign_id = str(row.get("campaignId", ""))
-        campaign_name = row.get("campaignName", "") or ""
+        campaign_name = campaign_names.get(campaign_id, "")
 
         if campaign_id in campaign_mapping:
             if campaign_mapping[campaign_id] != ASIN:
@@ -301,6 +416,10 @@ def main():
     token_obtained_at = time.time()
     print(f"OK: access token opgehaald. Periode: {start} t/m {end}.")
 
+    print("-> Campagnenamen ophalen (los van de rapporten, snelle lijst-call) ...")
+    campaign_names = get_campaign_names(access_token)
+    print(f"   OK: {len(campaign_names)} campagne(s) gevonden.")
+
     campaign_mapping = load_campaign_mapping()
     if campaign_mapping:
         print(f"OK: {len(campaign_mapping)} campagne-override(s) geladen uit {CAMPAIGN_MAPPING_FILE}.")
@@ -323,22 +442,47 @@ def main():
             access_token = get_access_token()
             token_obtained_at = time.time()
 
-        print(f"-> Rapport aanvragen voor {day} ...")
-        try:
-            report_id = request_report(access_token, day)
-            download_url = poll_report(access_token, report_id)
-            rows = download_report(download_url)
-            row = extract_row(rows, day, campaign_mapping)
-        except Exception as e:
-            print(f"   FOUT bij {day}: {e}. Deze dag wordt overgeslagen, ga door met de rest.")
+        print(f"-> Rapporten aanvragen voor {day} (SP + SB + SD) ...")
+        day_total = {"adSpend": 0.0, "adClicks": 0, "adImpressions": 0, "adSales14d": 0.0, "adOrders14d": 0}
+        any_success = False
+        for product in AD_PRODUCTS:
+            try:
+                report_id = request_report(access_token, day, product["key"], product["reportTypeId"])
+                download_url = poll_report(access_token, report_id)
+                rows = download_report(download_url)
+                sub_row = extract_row(rows, day, campaign_mapping, campaign_names)
+            except Exception as e:
+                print(f"   [{product['label']}] FOUT bij {day}: {e}. Dit advertentietype wordt "
+                      f"overgeslagen voor deze dag (andere types gaan door).")
+                continue
+            any_success = True
+            print(f"   [{product['label']}] spend={sub_row['adSpend']} clicks={sub_row['adClicks']} "
+                  f"sales14d={sub_row['adSales14d']} orders14d={sub_row['adOrders14d']}")
+            day_total["adSpend"] += sub_row["adSpend"]
+            day_total["adClicks"] += sub_row["adClicks"]
+            day_total["adImpressions"] += sub_row["adImpressions"]
+            day_total["adSales14d"] += sub_row["adSales14d"]
+            day_total["adOrders14d"] += sub_row["adOrders14d"]
+
+        if not any_success:
+            print(f"   FOUT bij {day}: geen van de 3 advertentietypes leverde resultaat op. Deze dag wordt overgeslagen.")
             failed_days.append(str(day))
             continue
 
-        print(f"   OK: spend={row['adSpend']} clicks={row['adClicks']} "
+        row = {
+            "date": str(day),
+            "childAsin": ASIN,
+            "adSpend": round(day_total["adSpend"], 2),
+            "adClicks": day_total["adClicks"],
+            "adImpressions": day_total["adImpressions"],
+            "adSales14d": round(day_total["adSales14d"], 2),
+            "adOrders14d": day_total["adOrders14d"],
+        }
+        print(f"   TOTAAL: spend={row['adSpend']} clicks={row['adClicks']} "
               f"sales14d={row['adSales14d']} orders14d={row['adOrders14d']}")
         upsert_history(row)
         ok_count += 1
-        time.sleep(3)  # lichte pauze tussen rapportaanvragen
+        time.sleep(3)  # lichte pauze tussen dagen
 
     print(f"\nKlaar: {ok_count} dag(en) succesvol opgehaald, {skip_count} dag(en) al aanwezig (overgeslagen).")
     if failed_days:
