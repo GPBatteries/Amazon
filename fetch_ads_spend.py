@@ -163,21 +163,53 @@ def get_campaign_names_sp(access_token: str) -> dict:
 
 def get_campaign_names_sb(access_token: str) -> dict:
     """
-    Sponsored Brands campagnelijst. Gebruikt bewust hetzelfde kale verzoektype
-    (geen speciale media-type-header) als de wel-werkende SD-aanroep, na een
-    eerdere poging met een vnd.sbcampaignresource-media-type die een vreemde
-    signature-achtige 403 opleverde (duidt op verkeerde routing/auth-laag bij
-    die header-combinatie).
+    Sponsored Brands campagnelijst. Amazon heeft dit endpoint geversioneerd
+    (vandaar ook "SB2" als campagnetype in bulksheet-exports) -- de kale
+    GET /sb/campaigns met Accept: application/json geeft een 406
+    ("No match for accept header"). We proberen daarom eerst het huidige
+    v4 list-endpoint (POST, zelfde stramien als de wel-werkende SP v3-lijst),
+    en loggen bij falen duidelijk welke poging het was, zodat een volgende
+    aanpassing gericht kan zijn i.p.v. weer gokken.
     """
-    headers = {**_base_headers(access_token), "Accept": "application/json"}
-    r = requests.get(f"{BASE_URL}/sb/campaigns", headers=headers, timeout=30)
-    if r.status_code != 200:
-        print(f"   [SB] Kon campagnelijst niet ophalen (HTTP {r.status_code}): {r.text[:600]}")
-        return {}
-    campaigns = r.json()
-    if isinstance(campaigns, dict):
-        campaigns = campaigns.get("campaigns", [])
-    return {str(c.get("campaignId")): c.get("name", "") for c in campaigns}
+    # Poging 1: v4 list-endpoint (POST, media-type-versioned -- huidige Amazon-stijl)
+    headers_v4 = {
+        **_base_headers(access_token),
+        "Content-Type": "application/vnd.sbcampaignresource.v4+json",
+        "Accept": "application/vnd.sbcampaignresource.v4+json",
+    }
+    mapping = {}
+    next_token = None
+    while True:
+        body = {}
+        if next_token:
+            body["nextToken"] = next_token
+        r = requests.post(f"{BASE_URL}/sb/v4/campaigns/list", headers=headers_v4, json=body, timeout=30)
+        if r.status_code != 200:
+            print(f"   [SB] Poging 1 (v4 list) mislukt (HTTP {r.status_code}): {r.text[:300]}")
+            mapping = None
+            break
+        data = r.json()
+        for c in data.get("campaigns", []):
+            mapping[str(c.get("campaignId"))] = c.get("name", "")
+        next_token = data.get("nextToken")
+        if not next_token:
+            break
+    if mapping is not None:
+        return mapping
+
+    # Poging 2 (fallback): kale GET met de v4-media-type als Accept (voor het
+    # geval het endpoint wél GET verwacht, maar met het nieuwe media-type).
+    headers_get = {**_base_headers(access_token), "Accept": "application/vnd.sbcampaignresource.v4+json"}
+    r2 = requests.get(f"{BASE_URL}/sb/campaigns", headers=headers_get, timeout=30)
+    if r2.status_code == 200:
+        campaigns = r2.json()
+        if isinstance(campaigns, dict):
+            campaigns = campaigns.get("campaigns", [])
+        return {str(c.get("campaignId")): c.get("name", "") for c in campaigns}
+    print(f"   [SB] Poging 2 (GET met v4-media-type) ook mislukt (HTTP {r2.status_code}): {r2.text[:300]}")
+    print("   [SB] Campagnenamen niet beschikbaar -- SB-spend kan deze run niet aan een ASIN worden "
+          "toegewezen (blijft dan ten onrechte op 0 staan). Zie campaign_mapping.json als handmatig vangnet.")
+    return {}
 
 
 def get_campaign_names_sd(access_token: str) -> dict:
