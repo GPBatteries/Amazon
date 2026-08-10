@@ -136,7 +136,7 @@ def get_campaign_names_sp(access_token: str) -> dict:
             body["nextToken"] = next_token
         r = requests.post(f"{BASE_URL}/sp/campaigns/list", headers=headers, json=body, timeout=30)
         if r.status_code != 200:
-            print(f"   [SP] Kon campagnelijst niet ophalen (HTTP {r.status_code}): {r.text[:200]}")
+            print(f"   [SP] Kon campagnelijst niet ophalen (HTTP {r.status_code}): {r.text[:600]}")
             return mapping
         data = r.json()
         for c in data.get("campaigns", []):
@@ -158,7 +158,7 @@ def get_campaign_names_sb(access_token: str) -> dict:
     headers = {**_base_headers(access_token), "Accept": "application/json"}
     r = requests.get(f"{BASE_URL}/sb/campaigns", headers=headers, timeout=30)
     if r.status_code != 200:
-        print(f"   [SB] Kon campagnelijst niet ophalen (HTTP {r.status_code}): {r.text[:200]}")
+        print(f"   [SB] Kon campagnelijst niet ophalen (HTTP {r.status_code}): {r.text[:600]}")
         return {}
     campaigns = r.json()
     if isinstance(campaigns, dict):
@@ -175,7 +175,7 @@ def get_campaign_names_sd(access_token: str) -> dict:
     headers = {**_base_headers(access_token), "Accept": "application/json"}
     r = requests.get(f"{BASE_URL}/sd/campaigns", headers=headers, timeout=30)
     if r.status_code != 200:
-        print(f"   [SD] Kon campagnelijst niet ophalen (HTTP {r.status_code}): {r.text[:200]}")
+        print(f"   [SD] Kon campagnelijst niet ophalen (HTTP {r.status_code}): {r.text[:600]}")
         return {}
     campaigns = r.json()
     return {str(c.get("campaignId")): c.get("name", "") for c in campaigns}
@@ -265,7 +265,7 @@ def request_report(access_token: str, day: dt.date, ad_product: str, report_type
                   f"Poging {attempt}/{max_attempts}, {wait}s wachten...")
             time.sleep(wait)
             continue
-        raise RuntimeError(f"{report_type_id}-rapport aanvragen mislukt ({day}): HTTP {r.status_code}: {r.text[:300]}")
+        raise RuntimeError(f"{report_type_id}-rapport aanvragen mislukt ({day}): HTTP {r.status_code}: {r.text[:800]}")
     raise RuntimeError(f"{report_type_id}-rapport bleef 429 geven voor {day} na {max_attempts} pogingen.")
 
 
