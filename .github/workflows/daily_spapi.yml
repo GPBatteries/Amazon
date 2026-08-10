@@ -43,6 +43,7 @@ jobs:
           LWA_CLIENT_ID: ${{ secrets.LWA_CLIENT_ID }}
           LWA_CLIENT_SECRET: ${{ secrets.LWA_CLIENT_SECRET }}
           SPAPI_REFRESH_TOKEN: ${{ secrets.SPAPI_REFRESH_TOKEN }}
+          SITE_PASSWORD: ${{ secrets.SITE_PASSWORD }}
           START_INPUT: ${{ github.event.inputs.start }}
           END_INPUT: ${{ github.event.inputs.end }}
         run: |
@@ -52,9 +53,10 @@ jobs:
           echo "Gebruikte argumenten: $ARGS"
           python fetch_spapi_daily.py $ARGS
 
-      - name: Excel bouwen (uit spapi_history.csv)
+      - name: Excel bouwen (uit spapi_history.csv.enc)
         env:
           DATA_SOURCE: spapi
+          SITE_PASSWORD: ${{ secrets.SITE_PASSWORD }}
         run: python update_amazon.py
 
       - name: LibreOffice installeren
