@@ -129,33 +129,21 @@ def get_campaign_names_sp(access_token: str) -> dict:
 
 def get_campaign_names_sb(access_token: str) -> dict:
     """
-    Sponsored Brands campagnelijst. NOG NIET LIVE GETEST -- endpoint/media-type
-    gebaseerd op documentatie. Faalt dit, dan printen we duidelijk waarom en
-    gaat de rest van het script gewoon door (SP-cijfers blijven intact).
+    Sponsored Brands campagnelijst. Gebruikt bewust hetzelfde kale verzoektype
+    (geen speciale media-type-header) als de wel-werkende SD-aanroep, na een
+    eerdere poging met een vnd.sbcampaignresource-media-type die een vreemde
+    signature-achtige 403 opleverde (duidt op verkeerde routing/auth-laag bij
+    die header-combinatie).
     """
-    headers = {
-        **_base_headers(access_token),
-        "Content-Type": "application/vnd.sbcampaignresource.v4+json",
-        "Accept": "application/vnd.sbcampaignresource.v4+json",
-    }
-    mapping = {}
-    next_token = None
-    while True:
-        params = {"maxResults": 200}
-        if next_token:
-            params["nextToken"] = next_token
-        r = requests.get(f"{BASE_URL}/sb/v4/campaigns", headers=headers, params=params, timeout=30)
-        if r.status_code != 200:
-            print(f"   [SB] Kon campagnelijst niet ophalen (HTTP {r.status_code}): {r.text[:200]}")
-            return mapping
-        data = r.json()
-        campaigns = data.get("campaigns", data if isinstance(data, list) else [])
-        for c in campaigns:
-            mapping[str(c.get("campaignId"))] = c.get("name", "")
-        next_token = data.get("nextToken") if isinstance(data, dict) else None
-        if not next_token:
-            break
-    return mapping
+    headers = {**_base_headers(access_token), "Accept": "application/json"}
+    r = requests.get(f"{BASE_URL}/sb/campaigns", headers=headers, timeout=30)
+    if r.status_code != 200:
+        print(f"   [SB] Kon campagnelijst niet ophalen (HTTP {r.status_code}): {r.text[:200]}")
+        return {}
+    campaigns = r.json()
+    if isinstance(campaigns, dict):
+        campaigns = campaigns.get("campaigns", [])
+    return {str(c.get("campaignId")): c.get("name", "") for c in campaigns}
 
 
 def get_campaign_names_sd(access_token: str) -> dict:
@@ -406,6 +394,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--start", help="YYYY-MM-DD, default = gisteren (UTC)")
     ap.add_argument("--end", help="YYYY-MM-DD, default = zelfde als --start")
+    ap.add_argument("--force", action="store_true",
+                    help="Haal dagen die al in de CSV staan toch opnieuw op (overschrijft de bestaande rij)")
     args = ap.parse_args()
 
     yesterday = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=1)).date()
@@ -425,7 +415,7 @@ def main():
         print(f"OK: {len(campaign_mapping)} campagne-override(s) geladen uit {CAMPAIGN_MAPPING_FILE}.")
 
     already_have = set()
-    if os.path.exists(HISTORY_CSV):
+    if not args.force and os.path.exists(HISTORY_CSV):
         with open(HISTORY_CSV, newline="", encoding="utf-8") as fh:
             already_have = {r["date"] for r in csv.DictReader(fh)}
 
