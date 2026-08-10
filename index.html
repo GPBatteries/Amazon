@@ -85,8 +85,10 @@
   .modal h2{font-size:18px;font-weight:800;margin-bottom:6px}
   .modalhint{font-size:12px;color:var(--muted);margin-bottom:18px;line-height:1.4}
   .modal label{display:block;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;margin:14px 0 6px}
-  .modal input{width:100%;padding:11px 13px;border-radius:9px;border:1px solid var(--line);background:#0e1117;color:var(--txt);font-family:'Manrope';font-size:14px;outline:none}
-  .modal input:focus{border-color:var(--accent)}
+  .modal input,.modal select{width:100%;padding:11px 13px;border-radius:9px;border:1px solid var(--line);background:#0e1117;color:var(--txt);font-family:'Manrope';font-size:14px;outline:none}
+  .modal input:focus,.modal select:focus{border-color:var(--accent)}
+  .modal select{appearance:none;-webkit-appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="%238b949e" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>');background-repeat:no-repeat;background-position:right 12px center;padding-right:34px}
+  .modal select option{background:#0e1117;color:var(--txt)}
   .modalerr{color:var(--err);font-size:13px;margin-top:12px;min-height:18px}
   .modalbtns{display:flex;gap:10px;margin-top:8px}
   .modalbtns button{flex:1;padding:12px;border-radius:9px;border:none;font-weight:600;font-size:14px;cursor:pointer;font-family:'Manrope';transition:.15s}
@@ -188,7 +190,13 @@
     <label>Productnaam</label>
     <input id="add-name" type="text" placeholder="bv. 1.5V AAA Batteries 24-pack" autocomplete="off">
     <label>Categorie</label>
-    <input id="add-category" type="text" placeholder="bv. Alkaline" autocomplete="off">
+    <select id="add-category">
+      <option value="" disabled selected>Kies een categorie...</option>
+      <option value="Alkaline">Alkaline</option>
+      <option value="Specialty">Specialty</option>
+      <option value="Rechargeable">Rechargeable</option>
+      <option value="Accessoires">Accessoires</option>
+    </select>
     <div class="modalerr" id="add-err"></div>
     <div class="modalbtns">
       <button class="btn-secondary" id="add-cancel">Annuleren</button>
