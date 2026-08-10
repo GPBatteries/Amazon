@@ -3,6 +3,11 @@ Haalt de dagelijkse sales/traffic-cijfers op via de SP-API en zet ze in
 output/spapi_history.csv, in hetzelfde format als de Google Sheet-route
 (kolommen: date, childAsin, unitsOrdered, orderedProductSales, unitSessionPercentage).
 
+Multi-ASIN: leest de lijst met ASIN's uit products.json (root van de repo) en
+haalt PER DAG in 1 rapportaanvraag de cijfers op voor AL die ASIN's tegelijk --
+dat rapport bevat namelijk sowieso alle producten van het account, we
+filteren 'm alleen naar de ASIN's die in products.json staan.
+
 Waar de data vandaan komt:
   Amazon Reports API (2021-06-30), reportType GET_SALES_AND_TRAFFIC_REPORT.
   Dit is het rapport dat units, sales EN sessions/CVR per ASIN per dag bevat --
@@ -14,9 +19,9 @@ Hoe het werkt (SP-API rapporten zijn altijd asynchroon):
   3. GET  /reports/2021-06-30/documents/{reportDocumentId}  -> download-url ophalen
   4. Download + (indien nodig) gunzip + JSON parsen
 
-Dit script haalt standaard de data van GISTEREN op (UTC) en voegt die ene
-rij toe aan de historie-CSV. Draai het dagelijks (net als de Google Sheet-route
-dat deed), zodat de historie stap voor stap opgebouwd wordt.
+Dit script haalt standaard de data van GISTEREN op (UTC) en voegt die rijen
+(1 per ASIN in products.json) toe aan de historie-CSV. Draai het dagelijks,
+zodat de historie stap voor stap opgebouwd wordt.
 
 Voor een eenmalige achterstand ophalen: geef --start en --end mee (YYYY-MM-DD),
 dan wordt er per dag in die periode een los rapport opgevraagd (let op: dit
@@ -26,6 +31,7 @@ import os
 import io
 import csv
 import sys
+import json
 import time
 import gzip
 import argparse
@@ -34,9 +40,9 @@ import datetime as dt
 import requests
 
 # ----------------------------------------------------------------------------
-# Config -- zelfde ASIN/marketplace als update_amazon.py
+# Config
 # ----------------------------------------------------------------------------
-ASIN = "B00CO00Y32"
+PRODUCTS_FILE = "products.json"
 MARKETPLACE_ID = "A1F83G8C2ARO7P"  # UK
 BASE_URL = "https://sellingpartnerapi-eu.amazon.com"  # regio bevestigd via sp_api_test.py
 
@@ -46,6 +52,15 @@ FIELDNAMES = ["date", "childAsin", "unitsOrdered", "orderedProductSales", "unitS
 CID = os.environ["LWA_CLIENT_ID"].strip()
 CS = os.environ["LWA_CLIENT_SECRET"].strip()
 RT = os.environ["SPAPI_REFRESH_TOKEN"].strip()
+
+
+def load_target_asins() -> list[str]:
+    with open(PRODUCTS_FILE, encoding="utf-8") as fh:
+        data = json.load(fh)
+    asins = [p["asin"] for p in data.get("products", [])]
+    if not asins:
+        raise SystemExit(f"Geen producten gevonden in {PRODUCTS_FILE}.")
+    return asins
 
 
 # ----------------------------------------------------------------------------
@@ -172,18 +187,25 @@ def download_report(access_token: str, report_document_id: str) -> dict:
 
 
 # ----------------------------------------------------------------------------
-# Rapport-JSON omzetten naar 1 rij (date, childAsin, unitsOrdered, orderedProductSales, unitSessionPercentage)
+# Rapport-JSON omzetten naar rijen (date, childAsin, unitsOrdered, orderedProductSales, unitSessionPercentage)
 # ----------------------------------------------------------------------------
-def extract_row(report_json: dict, day: dt.date) -> dict | None:
+def extract_rows(report_json: dict, day: dt.date, target_asins: list[str]) -> list[dict]:
     """
+    Haalt voor ALLE asins in target_asins de cijfers uit 1 rapport (dat toch al
+    alle producten van het account bevat). ASIN's die die dag niet in het
+    rapport voorkomen (bv. geen sales) krijgen een rij met nullen -- dat
+    voorkomt dat we die dag/asin-combinatie bij een volgende run steeds
+    opnieuw blijven proberen op te halen (zie 'already_have' in main()).
+
     Let op: de exacte structuur van dit rapport (veldnamen binnen salesAndTrafficByAsin)
     kan per Amazon API-versie licht afwijken. Print bij twijfel report_json eenmalig
-    volledig (bv. via de --debug-json vlag) en vergelijk met de officiële SP-API docs
-    voor GET_SALES_AND_TRAFFIC_REPORT, en pas de keys hieronder aan indien nodig.
+    volledig en vergelijk met de officiële SP-API docs voor
+    GET_SALES_AND_TRAFFIC_REPORT, en pas de keys hieronder aan indien nodig.
     """
-    rows = report_json.get("salesAndTrafficByAsin", [])
-    for entry in rows:
-        if entry.get("childAsin") != ASIN:
+    by_asin = {}
+    for entry in report_json.get("salesAndTrafficByAsin", []):
+        asin = entry.get("childAsin")
+        if asin not in target_asins:
             continue
         sales = entry.get("salesByAsin", {})
         traffic = entry.get("trafficByAsin", {})
@@ -191,68 +213,47 @@ def extract_row(report_json: dict, day: dt.date) -> dict | None:
         ordered_sales = sales.get("orderedProductSales", {})
         amount = ordered_sales.get("amount", 0) if isinstance(ordered_sales, dict) else ordered_sales
         session_pct = traffic.get("unitSessionPercentage", 0)
-        return {
+        by_asin[asin] = {
             "date": str(day),
-            "childAsin": ASIN,
+            "childAsin": asin,
             "unitsOrdered": units,
             "orderedProductSales": amount,
             "unitSessionPercentage": session_pct,
         }
-    return None
+
+    rows = []
+    for asin in target_asins:
+        if asin in by_asin:
+            rows.append(by_asin[asin])
+        else:
+            # Geen data voor dit ASIN die dag -- rij met nullen, zodat deze
+            # dag/asin-combinatie als "afgehandeld" geldt (geen sales, geen fout).
+            rows.append({
+                "date": str(day), "childAsin": asin,
+                "unitsOrdered": 0, "orderedProductSales": 0, "unitSessionPercentage": 0,
+            })
+    return rows
 
 
 # ----------------------------------------------------------------------------
-# Historie-CSV bijwerken (dedup op datum: nieuwste run wint)
+# Historie-CSV bijwerken (dedup op (datum, childAsin): nieuwste run wint)
 # ----------------------------------------------------------------------------
 def upsert_history(new_rows: list[dict]):
     existing = {}
     if os.path.exists(HISTORY_CSV):
         with open(HISTORY_CSV, newline="", encoding="utf-8") as fh:
             for row in csv.DictReader(fh):
-                existing[row["date"]] = row
+                existing[(row["date"], row["childAsin"])] = row
 
     for row in new_rows:
-        existing[row["date"]] = row
+        existing[(row["date"], row["childAsin"])] = row
 
     os.makedirs(os.path.dirname(HISTORY_CSV), exist_ok=True)
     with open(HISTORY_CSV, "w", newline="", encoding="utf-8") as fh:
         writer = csv.DictWriter(fh, fieldnames=FIELDNAMES)
         writer.writeheader()
-        for date_key in sorted(existing.keys()):
-            writer.writerow(existing[date_key])
-
-
-def get_product_name(access_token: str) -> str | None:
-    """
-    Haalt de productnaam op via de Catalog Items API (2022-04-01), los van de
-    sales/traffic-data. Geeft None terug als het niet lukt (bv. ontbrekende rol) --
-    dan valt het dashboard gewoon terug op de kale ASIN, niks breekt.
-    """
-    r = requests.get(
-        f"{BASE_URL}/catalog/2022-04-01/items/{ASIN}",
-        headers={"x-amz-access-token": access_token},
-        params={"marketplaceIds": MARKETPLACE_ID, "includedData": "summaries"},
-        timeout=30,
-    )
-    if r.status_code != 200:
-        print(f"   Kon productnaam niet ophalen (HTTP {r.status_code}): {r.text[:200]}")
-        print("   Mogelijk mist de app de rol 'Product Listing' -- dashboard toont dan gewoon de ASIN.")
-        return None
-    summaries = r.json().get("summaries", [])
-    for s in summaries:
-        if s.get("marketplaceId") == MARKETPLACE_ID and s.get("itemName"):
-            return s["itemName"]
-    if summaries and summaries[0].get("itemName"):
-        return summaries[0]["itemName"]
-    return None
-
-
-def save_product_meta(name: str | None):
-    path = os.path.join("output", "product_meta.json")
-    os.makedirs("output", exist_ok=True)
-    import json
-    with open(path, "w", encoding="utf-8") as fh:
-        json.dump({"asin": ASIN, "productName": name}, fh, ensure_ascii=False, indent=2)
+        for key in sorted(existing.keys()):
+            writer.writerow(existing[key])
 
 
 # ----------------------------------------------------------------------------
@@ -285,27 +286,25 @@ def main():
     start = parse_date(args.start) if args.start else yesterday
     end = parse_date(args.end) if args.end else start
 
+    target_asins = load_target_asins()
+    print(f"Doel-ASIN's uit {PRODUCTS_FILE}: {', '.join(target_asins)}")
+
     access_token = get_access_token()
     token_obtained_at = time.time()
     print(f"OK: access token opgehaald. Periode: {start} t/m {end}.")
 
-    print("-> Productnaam ophalen via Catalog Items API ...")
-    product_name = get_product_name(access_token)
-    if product_name:
-        print(f"   OK: '{product_name}'")
-    save_product_meta(product_name)
-
-    already_have = set()
+    already_have = set()  # set van (datum, asin) tuples
     if os.path.exists(HISTORY_CSV):
         with open(HISTORY_CSV, newline="", encoding="utf-8") as fh:
-            already_have = {row["date"] for row in csv.DictReader(fh)}
+            already_have = {(row["date"], row["childAsin"]) for row in csv.DictReader(fh)}
 
     ok_count = 0
     skip_count = 0
     failed_days = []
     TOKEN_MAX_AGE_S = 50 * 60  # LWA-tokens zijn ~1 uur geldig; ruim voor verloop verversen
     for day in daterange(start, end):
-        if str(day) in already_have:
+        # Alleen overslaan als ALLE doel-ASIN's voor deze dag al aanwezig zijn.
+        if all((str(day), asin) in already_have for asin in target_asins):
             skip_count += 1
             continue
         # Bij lange terugvul-runs verloopt het token halverwege (na ~1 uur) --
@@ -319,7 +318,7 @@ def main():
             report_id = request_report(access_token, day)
             doc_id = poll_report(access_token, report_id)
             report_json = download_report(access_token, doc_id)
-            row = extract_row(report_json, day)
+            rows = extract_rows(report_json, day, target_asins)
         except Exception as e:
             if "expired" in str(e).lower() or "unauthorized" in str(e).lower():
                 print("   Token blijkt toch verlopen te zijn, eenmalig verversen en deze dag opnieuw proberen...")
@@ -329,7 +328,7 @@ def main():
                     report_id = request_report(access_token, day)
                     doc_id = poll_report(access_token, report_id)
                     report_json = download_report(access_token, doc_id)
-                    row = extract_row(report_json, day)
+                    rows = extract_rows(report_json, day, target_asins)
                 except Exception as e2:
                     print(f"   FOUT bij {day} (ook na verversen token): {e2}. Deze dag wordt overgeslagen.")
                     failed_days.append(str(day))
@@ -342,13 +341,11 @@ def main():
                 failed_days.append(str(day))
                 continue
 
-        if row is None:
-            print(f"   Geen data voor ASIN {ASIN} op {day} (mogelijk geen sales die dag).")
-        else:
-            print(f"   OK: units={row['unitsOrdered']} sales={row['orderedProductSales']} "
-                  f"cvr={row['unitSessionPercentage']}")
-            upsert_history([row])  # direct wegschrijven, niet pas aan het eind
-            ok_count += 1
+        for row in rows:
+            print(f"   {row['childAsin']}: units={row['unitsOrdered']} "
+                  f"sales={row['orderedProductSales']} cvr={row['unitSessionPercentage']}")
+        upsert_history(rows)  # direct wegschrijven, niet pas aan het eind
+        ok_count += 1
 
         time.sleep(8)  # pauze tussen rapportaanvragen i.v.m. rate limits (naast de retry-logica hierboven)
 

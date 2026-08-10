@@ -198,6 +198,8 @@
 
   <div id="panel-dl" class="panel">
     <div class="dlcard">
+      <label style="display:block;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;margin-bottom:6px">Product</label>
+      <select id="dl-product" style="width:100%;padding:11px 13px;border-radius:9px;border:1px solid var(--line);background:#0e1117;color:var(--txt);font-family:'Manrope';font-size:14px;outline:none;margin-bottom:8px"></select>
       <div class="meta">
         <div class="row"><span>Laatst bijgewerkt</span><span id="dl-updated">-</span></div>
         <div class="row"><span>Laatste datum</span><span id="dl-lastdate">-</span></div>
@@ -241,7 +243,6 @@
 <script>
 const enc = new TextEncoder();
 let PW = null;          // wachtwoord blijft alleen in geheugen, deze sessie
-let ASIN = 'data';
 let RAW_ROWS = [];       // ongefilterde dagdata, 1x geladen bij unlock
 let VAT = 0;
 let PERIOD = 'day';
@@ -381,13 +382,16 @@ async function unlock(){
     const plain = await decryptBuf(await fetchEnc('payload.enc'), pw);
     const data = JSON.parse(new TextDecoder().decode(plain));
     PW = pw;
-    PRODUCTS = await fetchProducts();
-    // Vangnet: als products.json (nog) niet het geladen ASIN bevat -- bv. bij
-    // een pas toegevoegd product, of als het bestand nog leeg is -- vul de
-    // sidebar dan alsnog met wat we wél weten uit de data zelf.
-    if(!PRODUCTS.some(p => p.asin === data.asin)){
-      PRODUCTS.push({asin: data.asin, name: data.productName || data.asin, category: 'Overig'});
-    }
+    const fromFile = await fetchProducts();
+    // products.json is de bron van waarheid voor naam/categorie (ook voor
+    // net toegevoegde producten die nog geen data hebben); data.products
+    // (uit data.json) vult aan voor het geval een product er nog niet in
+    // products.json staat maar wel al data heeft (zou niet moeten gebeuren,
+    // maar zo breekt er nooit iets).
+    const map = {};
+    fromFile.forEach(p => { map[p.asin] = p; });
+    (data.products || []).forEach(p => { if(!map[p.asin]) map[p.asin] = p; });
+    PRODUCTS = Object.values(map);
     buildSidebar();
     render(data);
     document.getElementById('gate').style.display = 'none';
@@ -486,28 +490,55 @@ function toggleAllCats(){
 function toggleAllProducts(){ toggleAllCats(); } // zelfde effect, apart label voor duidelijkheid in de UI
 
 function render(d){
-  ASIN = d.asin;
   VAT = (d.assumptions && d.assumptions.vat) || 0;
-  document.getElementById('pname').textContent = d.productName || 'Salesrapport';
-  document.getElementById('asin').textContent = d.asin;
   document.getElementById('updated').textContent = d.generated_utc;
   document.getElementById('dl-updated').textContent = d.generated_utc;
-  document.getElementById('dl-lastdate').textContent = d.last_date;
-  document.getElementById('dl-days').textContent = d.days;
 
-  RAW_ROWS = d.rows.map(r => ({...r, asin: r.asin || d.asin}));
+  RAW_ROWS = d.rows;  // elke rij heeft al een 'asin'-veld (van de backend)
   if(!RAW_ROWS.length) return;
-  const last = RAW_ROWS[RAW_ROWS.length-1];
-  document.getElementById('k-date').textContent = last.date;
-  document.getElementById('k-sales').textContent = gbp(last.sales);
-  document.getElementById('k-units').textContent = num(last.units);
-  document.getElementById('k-margin').textContent = pct(last.marginPct);
+
+  // Header: bij 1 product de naam/ASIN tonen, bij meerdere een samenvatting.
+  const dataProducts = d.products || [];
+  if(dataProducts.length === 1){
+    document.getElementById('pname').textContent = dataProducts[0].name || 'Salesrapport';
+    document.getElementById('asin').textContent = dataProducts[0].asin;
+  }else{
+    document.getElementById('pname').textContent = 'Salesrapport';
+    document.getElementById('asin').textContent = dataProducts.length + ' producten';
+  }
+
+  // Download-tab: keuzelijst met alle producten die daadwerkelijk een Excel hebben.
+  const dlSelect = document.getElementById('dl-product');
+  dlSelect.innerHTML = dataProducts.map(p =>
+    `<option value="${p.asin}">${p.name} (${p.asin})</option>`).join('');
+  updateDownloadMeta();
+
+  const lastDate = RAW_ROWS.reduce((m,r) => r.date > m ? r.date : m, RAW_ROWS[0].date);
+  const lastRows = RAW_ROWS.filter(r => r.date === lastDate);
+  const totUnits = lastRows.reduce((s,r) => s + r.units, 0);
+  const totSales = lastRows.reduce((s,r) => s + r.sales, 0);
+  const totMarginTot = lastRows.reduce((s,r) => s + r.marginTot, 0);
+  const totNet = lastRows.reduce((s,r) => s + (r.netRsp * r.units), 0);
+  document.getElementById('k-date').textContent = lastDate;
+  document.getElementById('k-sales').textContent = gbp(totSales);
+  document.getElementById('k-units').textContent = num(totUnits);
+  document.getElementById('k-margin').textContent = pct(totNet ? totMarginTot / totNet : 0);
 
   // Datumvelden vullen met de volledige beschikbare periode als startwaarde
-  document.getElementById('f-from').value = RAW_ROWS[0].date;
-  document.getElementById('f-to').value = last.date;
+  const firstDate = RAW_ROWS.reduce((m,r) => r.date < m ? r.date : m, RAW_ROWS[0].date);
+  document.getElementById('f-from').value = firstDate;
+  document.getElementById('f-to').value = lastDate;
 
   refreshView();
+}
+
+function updateDownloadMeta(){
+  const asin = document.getElementById('dl-product').value;
+  const rowsForAsin = RAW_ROWS.filter(r => r.asin === asin);
+  if(!rowsForAsin.length) return;
+  const lastDate = rowsForAsin.reduce((m,r) => r.date > m ? r.date : m, rowsForAsin[0].date);
+  document.getElementById('dl-lastdate').textContent = lastDate;
+  document.getElementById('dl-days').textContent = rowsForAsin.length;
 }
 
 function renderTableAndChart(rows){
@@ -540,14 +571,16 @@ function renderTableAndChart(rows){
 
 async function downloadExcel(){
   if(!PW) return;
+  const asin = document.getElementById('dl-product').value;
+  if(!asin) return;
   const lbl = document.getElementById('dl-label');
   const old = lbl.textContent; lbl.textContent = 'Ontsleutelen...';
   try{
-    const buf = await decryptBuf(await fetchEnc('file.enc'), PW);
+    const buf = await decryptBuf(await fetchEnc(`file_${asin}.enc`), PW);
     const blob = new Blob([buf], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = 'Amazon_' + ASIN + '.xlsx';
+    a.download = 'Amazon_' + asin + '.xlsx';
     a.click();
     URL.revokeObjectURL(a.href);
   }catch(e){ alert('Ontsleutelen mislukt.'); }
@@ -557,6 +590,7 @@ async function downloadExcel(){
 document.getElementById('unlock').addEventListener('click', unlock);
 document.getElementById('pw').addEventListener('keydown', e => { if(e.key==='Enter') unlock(); });
 document.getElementById('download').addEventListener('click', downloadExcel);
+document.getElementById('dl-product').addEventListener('change', updateDownloadMeta);
 document.getElementById('f-from').addEventListener('change', refreshView);
 document.getElementById('f-to').addEventListener('change', refreshView);
 

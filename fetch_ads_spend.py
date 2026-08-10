@@ -2,6 +2,10 @@
 Haalt de dagelijkse advertentiekosten (spend) en advertentie-omzet op via de
 Amazon Ads API, en zet ze in output/ads_spend_history.csv.
 
+Multi-ASIN: leest de lijst met ASIN's uit products.json en verdeelt de spend
+van elke campagne over de ASIN's die in de campagnenaam voorkomen (of via
+campaign_mapping.json, voor uitzonderingen).
+
 Waar de data vandaan komt:
   Amazon Ads Reporting API v3 (POST/GET /reporting/reports), voor ALLE DRIE
   de advertentietypes die Amazon aanbiedt (anders mis je spend!):
@@ -46,6 +50,7 @@ kunnen bijstellen zonder dat de SP-cijfers geraakt worden.
 """
 import os
 import csv
+import json
 import time
 import gzip
 import argparse
@@ -53,10 +58,19 @@ import datetime as dt
 
 import requests
 
-ASIN = "B00CO00Y32"
+PRODUCTS_FILE = "products.json"
 BASE_URL = "https://advertising-api-eu.amazon.com"  # EU-regio, bevestigd via ads_api_test.py
 
 CAMPAIGN_MAPPING_FILE = "campaign_mapping.json"
+
+
+def load_target_asins() -> list[str]:
+    with open(PRODUCTS_FILE, encoding="utf-8") as fh:
+        data = json.load(fh)
+    asins = [p["asin"] for p in data.get("products", [])]
+    if not asins:
+        raise SystemExit(f"Geen producten gevonden in {PRODUCTS_FILE}.")
+    return asins
 
 # De 3 advertentietypes die Amazon aanbiedt. Elk heeft een eigen reportTypeId,
 # eigen toegestane kolomnamen, EN eigen veldnamen voor "omzet"/"orders" (SP
@@ -321,73 +335,76 @@ def download_report(url: str) -> list:
 
 
 # ----------------------------------------------------------------------------
-def extract_row(rows: list, day: dt.date, campaign_mapping: dict, campaign_names: dict,
-                 sales_field: str = "sales14d", orders_field: str = "purchases14d") -> dict:
+def extract_rows(rows: list, campaign_mapping: dict, campaign_names: dict, target_asins: list[str],
+                  sales_field: str = "sales14d", orders_field: str = "purchases14d") -> dict:
     """
-    Telt alle campagnes voor ASIN B00CO00Y32 die dag bij elkaar op (er kunnen
-    meerdere campagnes tegelijk voor hetzelfde product lopen). sales_field en
+    Telt alle campagnes per ASIN uit target_asins bij elkaar op. sales_field en
     orders_field verschillen per advertentietype (zie AD_PRODUCTS) -- SP
     gebruikt sales14d/purchases14d (14-dagen attributie), SB/SD gebruiken
     andere kolomnamen.
 
     Matching-logica per campagne, in deze volgorde:
       1. Staat het campaignId in campaign_mapping.json? -> die koppeling geldt
-         altijd (override), voor uitzonderingsgevallen.
-      2. Anders (de normale situatie): staat het ASIN letterlijk in de
-         campagnenaam (opgezocht via campaign_names, apart ophaald -- zie
-         get_campaign_names)? -> meetellen.
+         altijd (override), voor uitzonderingsgevallen. Wijst de mapping naar
+         een ASIN dat niet in products.json staat, dan wordt de campagne genegeerd.
+      2. Anders (de normale situatie): voor elk ASIN in target_asins checken
+         of het letterlijk in de campagnenaam voorkomt (opgezocht via
+         campaign_names) -> meetellen bij dat/die ASIN(s).
+
+    Geeft een dict {asin: {spend, clicks, impressions, sales, orders}} terug,
+    met een entry voor ELK ASIN in target_asins (ook als er niks aan gekoppeld is).
     """
-    spend = clicks = impressions = sales = orders = 0
+    totals = {asin: {"spend": 0.0, "clicks": 0, "impressions": 0, "sales": 0.0, "orders": 0}
+              for asin in target_asins}
     matched_via_override = matched_via_name = 0
+
     for row in rows:
         campaign_id = str(row.get("campaignId", ""))
         campaign_name = campaign_names.get(campaign_id, "")
 
         if campaign_id in campaign_mapping:
-            if campaign_mapping[campaign_id] != ASIN:
-                continue
+            mapped_asin = campaign_mapping[campaign_id]
+            if mapped_asin not in target_asins:
+                continue  # override wijst naar een ASIN dat niet (meer) in products.json staat
+            targets = [mapped_asin]
             matched_via_override += 1
-        elif ASIN in campaign_name:
-            matched_via_name += 1
         else:
-            continue
+            targets = [asin for asin in target_asins if asin in campaign_name]
+            if not targets:
+                continue
+            matched_via_name += 1
 
-        spend += row.get("cost", 0) or 0
-        clicks += row.get("clicks", 0) or 0
-        impressions += row.get("impressions", 0) or 0
-        sales += row.get(sales_field, 0) or 0
-        orders += row.get(orders_field, 0) or 0
+        for asin in targets:
+            t = totals[asin]
+            t["spend"] += row.get("cost", 0) or 0
+            t["clicks"] += row.get("clicks", 0) or 0
+            t["impressions"] += row.get("impressions", 0) or 0
+            t["sales"] += row.get(sales_field, 0) or 0
+            t["orders"] += row.get(orders_field, 0) or 0
 
     if matched_via_override:
         print(f"   ({matched_via_override} campagne(s) meegeteld via campaign_mapping.json-override)")
     if matched_via_name:
         print(f"   ({matched_via_name} campagne(s) meegeteld via ASIN in campagnenaam)")
-    return {
-        "date": str(day),
-        "childAsin": ASIN,
-        "adSpend": round(spend, 2),
-        "adClicks": clicks,
-        "adImpressions": impressions,
-        "adSales14d": round(sales, 2),
-        "adOrders14d": orders,
-    }
+    return totals
 
 
 # ----------------------------------------------------------------------------
-def upsert_history(row: dict):
+def upsert_history(new_rows: list[dict]):
     existing = {}
     if os.path.exists(HISTORY_CSV):
         with open(HISTORY_CSV, newline="", encoding="utf-8") as fh:
             for r in csv.DictReader(fh):
-                existing[r["date"]] = r
-    existing[row["date"]] = row
+                existing[(r["date"], r["childAsin"])] = r
+    for row in new_rows:
+        existing[(row["date"], row["childAsin"])] = row
 
     os.makedirs(os.path.dirname(HISTORY_CSV), exist_ok=True)
     with open(HISTORY_CSV, "w", newline="", encoding="utf-8") as fh:
         writer = csv.DictWriter(fh, fieldnames=FIELDNAMES)
         writer.writeheader()
-        for date_key in sorted(existing.keys()):
-            writer.writerow(existing[date_key])
+        for key in sorted(existing.keys()):
+            writer.writerow(existing[key])
 
 
 def parse_date(value: str) -> dt.date:
@@ -418,6 +435,9 @@ def main():
     start = parse_date(args.start) if args.start else yesterday
     end = parse_date(args.end) if args.end else start
 
+    target_asins = load_target_asins()
+    print(f"Doel-ASIN's uit {PRODUCTS_FILE}: {', '.join(target_asins)}")
+
     access_token = get_access_token()
     token_obtained_at = time.time()
     print(f"OK: access token opgehaald. Periode: {start} t/m {end}.")
@@ -430,17 +450,18 @@ def main():
     if campaign_mapping:
         print(f"OK: {len(campaign_mapping)} campagne-override(s) geladen uit {CAMPAIGN_MAPPING_FILE}.")
 
-    already_have = set()
+    already_have = set()  # set van (datum, asin) tuples
     if not args.force and os.path.exists(HISTORY_CSV):
         with open(HISTORY_CSV, newline="", encoding="utf-8") as fh:
-            already_have = {r["date"] for r in csv.DictReader(fh)}
+            already_have = {(r["date"], r["childAsin"]) for r in csv.DictReader(fh)}
 
     ok_count = 0
     skip_count = 0
     failed_days = []
     TOKEN_MAX_AGE_S = 50 * 60
     for day in daterange(start, end):
-        if str(day) in already_have:
+        # Alleen overslaan als ALLE doel-ASIN's voor deze dag al aanwezig zijn.
+        if not args.force and all((str(day), asin) in already_have for asin in target_asins):
             skip_count += 1
             continue
         if time.time() - token_obtained_at > TOKEN_MAX_AGE_S:
@@ -449,45 +470,52 @@ def main():
             token_obtained_at = time.time()
 
         print(f"-> Rapporten aanvragen voor {day} (SP + SB + SD) ...")
-        day_total = {"adSpend": 0.0, "adClicks": 0, "adImpressions": 0, "adSales14d": 0.0, "adOrders14d": 0}
+        day_totals = {asin: {"spend": 0.0, "clicks": 0, "impressions": 0, "sales": 0.0, "orders": 0}
+                      for asin in target_asins}
         any_success = False
         for product in AD_PRODUCTS:
             try:
                 report_id = request_report(access_token, day, product["key"], product["reportTypeId"], product["columns"])
                 download_url = poll_report(access_token, report_id)
                 rows = download_report(download_url)
-                sub_row = extract_row(rows, day, campaign_mapping, campaign_names,
-                                       product["salesField"], product["ordersField"])
+                sub_totals = extract_rows(rows, campaign_mapping, campaign_names, target_asins,
+                                           product["salesField"], product["ordersField"])
             except Exception as e:
                 print(f"   [{product['label']}] FOUT bij {day}: {e}. Dit advertentietype wordt "
                       f"overgeslagen voor deze dag (andere types gaan door).")
                 continue
             any_success = True
-            print(f"   [{product['label']}] spend={sub_row['adSpend']} clicks={sub_row['adClicks']} "
-                  f"sales14d={sub_row['adSales14d']} orders14d={sub_row['adOrders14d']}")
-            day_total["adSpend"] += sub_row["adSpend"]
-            day_total["adClicks"] += sub_row["adClicks"]
-            day_total["adImpressions"] += sub_row["adImpressions"]
-            day_total["adSales14d"] += sub_row["adSales14d"]
-            day_total["adOrders14d"] += sub_row["adOrders14d"]
+            for asin, sub in sub_totals.items():
+                if sub["spend"] or sub["clicks"] or sub["impressions"]:
+                    print(f"   [{product['label']}] {asin}: spend={round(sub['spend'],2)} "
+                          f"clicks={sub['clicks']} sales={round(sub['sales'],2)} orders={sub['orders']}")
+                t = day_totals[asin]
+                t["spend"] += sub["spend"]
+                t["clicks"] += sub["clicks"]
+                t["impressions"] += sub["impressions"]
+                t["sales"] += sub["sales"]
+                t["orders"] += sub["orders"]
 
         if not any_success:
             print(f"   FOUT bij {day}: geen van de 3 advertentietypes leverde resultaat op. Deze dag wordt overgeslagen.")
             failed_days.append(str(day))
             continue
 
-        row = {
-            "date": str(day),
-            "childAsin": ASIN,
-            "adSpend": round(day_total["adSpend"], 2),
-            "adClicks": day_total["adClicks"],
-            "adImpressions": day_total["adImpressions"],
-            "adSales14d": round(day_total["adSales14d"], 2),
-            "adOrders14d": day_total["adOrders14d"],
-        }
-        print(f"   TOTAAL: spend={row['adSpend']} clicks={row['adClicks']} "
-              f"sales14d={row['adSales14d']} orders14d={row['adOrders14d']}")
-        upsert_history(row)
+        day_rows = []
+        for asin, t in day_totals.items():
+            row = {
+                "date": str(day),
+                "childAsin": asin,
+                "adSpend": round(t["spend"], 2),
+                "adClicks": t["clicks"],
+                "adImpressions": t["impressions"],
+                "adSales14d": round(t["sales"], 2),
+                "adOrders14d": t["orders"],
+            }
+            day_rows.append(row)
+            print(f"   TOTAAL {asin}: spend={row['adSpend']} clicks={row['adClicks']} "
+                  f"sales14d={row['adSales14d']} orders14d={row['adOrders14d']}")
+        upsert_history(day_rows)
         ok_count += 1
         time.sleep(3)  # lichte pauze tussen dagen
 

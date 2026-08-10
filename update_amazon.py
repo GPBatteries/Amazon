@@ -15,15 +15,16 @@ from openpyxl.utils import get_column_letter
 # ----------------------------------------------------------------------------
 SHEET_ID = "19h1OUyvNQbIVxNIkPEMUsHM8pLNPuw0jMHKkUQiB1l8"
 DAILY_IMP_GID = "210013716"
-ASIN = "B00CO00Y32"
+PRODUCTS_FILE = "products.json"
 
-# Aannames (bewerkbaar in de Excel; dit zijn de startwaarden)
+# Aannames (bewerkbaar in de Excel; dit zijn de startwaarden) -- gelden nu
+# nog voor alle producten gelijk. Per-product aannames kunnen later aan
+# products.json toegevoegd worden als daar behoefte aan is.
 VAT_RATE = 0.20              # net = gross / (1 + BTW)
 COMMISSION_ADFEE_PCT = 0.153 # 15,3% van gross RSP
 FBA = 2.42                   # GBP per stuk
 COGS = 3.96                  # GBP per stuk
 
-OUTPUT = os.path.join("output", f"Amazon_{ASIN}.xlsx")
 CSV_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={DAILY_IMP_GID}"
 
 NEEDED = ["date", "childAsin", "unitsOrdered", "orderedProductSales", "unitSessionPercentage"]
@@ -31,6 +32,15 @@ NEEDED = ["date", "childAsin", "unitsOrdered", "orderedProductSales", "unitSessi
 FONT = "Arial"
 BLUE = "0000FF"
 GREY = "808080"
+
+
+def load_products() -> list[dict]:
+    with open(PRODUCTS_FILE, encoding="utf-8") as fh:
+        data = json.load(fh)
+    products = data.get("products", [])
+    if not products:
+        raise SystemExit(f"Geen producten gevonden in {PRODUCTS_FILE}.")
+    return products
 
 # ----------------------------------------------------------------------------
 # Data inlezen
@@ -66,21 +76,21 @@ def load_daily_imp() -> pd.DataFrame:
     df["date"] = pd.to_datetime(df["date"]).dt.date
     for c in ["unitsOrdered", "orderedProductSales", "unitSessionPercentage"]:
         df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
-    df = df[df["childAsin"] == ASIN]
     # Daily IMP bevat per datum dubbele rijen (een blok zonder en een met traffic).
-    # units/sales zijn identiek in beide; dedup naar 1 rij per datum via max.
+    # units/sales zijn identiek in beide; dedup naar 1 rij per (datum, ASIN) via max.
     # Voor CVR pakt max automatisch de rij met traffic (rij zonder traffic = 0).
     df = (df.groupby(["date", "childAsin"], as_index=False)
             .agg({"unitsOrdered": "max",
                   "orderedProductSales": "max",
                   "unitSessionPercentage": "max"}))
-    df = df.sort_values("date").reset_index(drop=True)
+    df = df.sort_values(["childAsin", "date"]).reset_index(drop=True)
     return df
 
 # ----------------------------------------------------------------------------
 # Excel bouwen
 # ----------------------------------------------------------------------------
-def build(df: pd.DataFrame):
+def build(df: pd.DataFrame, asin: str):
+    output_path = os.path.join("output", f"Amazon_{asin}.xlsx")
     wb = Workbook()
 
     # --- Data-tab (ruwe bron, SUMIFS leest hieruit) ---
@@ -118,7 +128,7 @@ def build(df: pd.DataFrame):
 
     rep["C1"] = "Datum (Column A)"
     rep["A2"] = "ASin"
-    rep["B2"] = ASIN
+    rep["B2"] = asin
     rep["A3"] = "C40"
     for r, name, src in labels:
         rep.cell(r, 2, name)
@@ -202,9 +212,9 @@ def build(df: pd.DataFrame):
     # cellen leeg omdat openpyxl geen voorberekende waarden meeschrijft).
     wb.calculation.fullCalcOnLoad = True
 
-    os.makedirs(os.path.dirname(OUTPUT), exist_ok=True)
-    wb.save(OUTPUT)
-    return len(dates)
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    wb.save(output_path)
+    return len(dates), output_path
 
 # ----------------------------------------------------------------------------
 # Cijfers berekenen (identiek aan de Excel-formules) voor data.json / dashboard
@@ -212,19 +222,19 @@ def build(df: pd.DataFrame):
 def load_ads_spend() -> dict:
     """
     Leest output/ads_spend_history.csv (indien aanwezig, gevuld door
-    fetch_ads_spend.py) en geeft een dict {datum: rij} terug. Ontbreekt dit
-    bestand nog (bv. eerste keer, of de losse Ads-workflow heeft nog niet
-    gedraaid), dan geeft dit gewoon een lege dict terug -- niks breekt, de
-    ads-kolommen blijven dan leeg in het dashboard.
+    fetch_ads_spend.py) en geeft een dict {(datum, childAsin): rij} terug.
+    Ontbreekt dit bestand nog (bv. eerste keer, of de losse Ads-workflow heeft
+    nog niet gedraaid), dan geeft dit gewoon een lege dict terug -- niks
+    breekt, de ads-kolommen blijven dan leeg in het dashboard.
     """
     path = os.path.join("output", "ads_spend_history.csv")
     if not os.path.exists(path):
         return {}
     ads_df = pd.read_csv(path)
-    return {str(r["date"]): r for _, r in ads_df.iterrows()}
+    return {(str(r["date"]), r["childAsin"]): r for _, r in ads_df.iterrows()}
 
 
-def compute_rows(df: pd.DataFrame, ads_spend: dict = None):
+def compute_rows(df: pd.DataFrame, ads_spend: dict, asin: str):
     ads_spend = ads_spend or {}
     rows = []
     for _, r in df.iterrows():
@@ -238,6 +248,7 @@ def compute_rows(df: pd.DataFrame, ads_spend: dict = None):
 
         row = {
             "date": str(r["date"]),
+            "asin": asin,
             "units": units,
             "sales": sales,
             "grossRsp": gross,
@@ -252,8 +263,9 @@ def compute_rows(df: pd.DataFrame, ads_spend: dict = None):
         }
 
         # Ads-spend is optioneel en komt uit een losse databron (Ads API,
-        # via fetch_ads_spend.py) -- alleen invullen als die dag bekend is.
-        ads_row = ads_spend.get(str(r["date"]))
+        # via fetch_ads_spend.py) -- alleen invullen als deze (datum, asin)
+        # combinatie bekend is.
+        ads_row = ads_spend.get((str(r["date"]), asin))
         if ads_row is not None:
             ad_spend = float(ads_row["adSpend"])
             ad_sales14d = float(ads_row["adSales14d"])
@@ -279,36 +291,51 @@ def compute_rows(df: pd.DataFrame, ads_spend: dict = None):
 
 # ----------------------------------------------------------------------------
 def main():
-    df = load_daily_imp()
-    if df.empty:
-        raise SystemExit(f"Geen rijen gevonden voor ASIN {ASIN}.")
-    n = build(df)
+    products = load_products()
+    print(f"Producten uit {PRODUCTS_FILE}: {', '.join(p['asin'] for p in products)}")
+
+    full_df = load_daily_imp()
+    if full_df.empty:
+        raise SystemExit("Geen rijen gevonden in de bron (spapi_history.csv/Google Sheet leeg?).")
+    ads_spend_all = load_ads_spend()
     generated = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
-    # Productnaam is optioneel: alleen aanwezig als fetch_spapi_daily.py 'm heeft
-    # opgehaald via de Catalog Items API. Ontbreekt dit bestand (bv. bij de
-    # Google Sheet-route), dan valt het dashboard gewoon terug op de ASIN.
-    product_name = None
-    product_meta_path = os.path.join("output", "product_meta.json")
-    if os.path.exists(product_meta_path):
-        with open(product_meta_path, encoding="utf-8") as fh:
-            product_name = json.load(fh).get("productName")
+    all_rows = []
+    products_meta = []
+    for p in products:
+        asin, name, category = p["asin"], p.get("name", p["asin"]), p.get("category", "Overig")
+        pdf = full_df[full_df["childAsin"] == asin].reset_index(drop=True)
+        if pdf.empty:
+            print(f"LET OP: geen data voor {asin} ({name}) -- nog niet opgehaald, of nog geen sales. "
+                  f"Wordt overgeslagen in data.json totdat er data is.")
+            continue
+
+        n, output_path = build(pdf, asin)
+        rows = compute_rows(pdf, ads_spend_all, asin)
+        all_rows.extend(rows)
+        products_meta.append({
+            "asin": asin,
+            "name": name,
+            "category": category,
+            "file": os.path.basename(output_path),
+            "days": n,
+            "rows": int(len(pdf)),
+            "last_date": str(max(pdf["date"])),
+        })
+        print(f"OK: {output_path} ({n} dagkolommen, {len(pdf)} bronrijen voor {asin})")
+
+    if not products_meta:
+        raise SystemExit("Geen van de producten in products.json heeft data -- niets gebouwd.")
 
     meta = {
-        "asin": ASIN,
-        "productName": product_name,
-        "file": f"Amazon_{ASIN}.xlsx",
         "generated_utc": generated,
-        "days": n,
-        "rows": int(len(df)),
-        "last_date": str(max(df["date"])),
+        "products": products_meta,
+        "total_rows": len(all_rows),
     }
     with open(os.path.join("output", "meta.json"), "w", encoding="utf-8") as fh:
         json.dump(meta, fh, ensure_ascii=False, indent=2)
 
     data = {
-        "asin": ASIN,
-        "productName": product_name,
         "generated_utc": generated,
         "assumptions": {
             "vat": VAT_RATE,
@@ -316,12 +343,13 @@ def main():
             "fba": FBA,
             "cogs": COGS,
         },
-        "rows": compute_rows(df, load_ads_spend()),
+        "products": products_meta,
+        "rows": all_rows,
     }
     with open(os.path.join("output", "data.json"), "w", encoding="utf-8") as fh:
         json.dump(data, fh, ensure_ascii=False)
 
-    print(f"OK: {OUTPUT} ({n} dagkolommen, {len(df)} bronrijen voor {ASIN})")
+    print(f"\nKlaar: {len(products_meta)} product(en) verwerkt, {len(all_rows)} rijen totaal in data.json.")
 
 if __name__ == "__main__":
     main()
