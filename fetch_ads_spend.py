@@ -516,7 +516,12 @@ def main():
     if campaign_mapping:
         print(f"OK: {len(campaign_mapping)} campagne-override(s) geladen uit {CAMPAIGN_MAPPING_FILE}.")
 
-    already_have = set() if args.force else {(r["date"], r["childAsin"]) for r in read_history_rows()}
+    existing_rows = [] if args.force else read_history_rows()
+    already_have = {(r["date"], r["childAsin"]) for r in existing_rows}
+
+    if not os.path.exists(HISTORY_ENC) and existing_rows:
+        write_history_rows({(r["date"], r["childAsin"]): r for r in existing_rows})
+        print(f"   Migratie voltooid: {len(existing_rows)} bestaande rij(en) direct versleuteld weggeschreven.")
 
     ok_count = 0
     skip_count = 0

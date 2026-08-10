@@ -328,7 +328,17 @@ def main():
     token_obtained_at = time.time()
     print(f"OK: access token opgehaald. Periode: {start} t/m {end}.")
 
-    already_have = {(r["date"], r["childAsin"]) for r in read_history_rows()}  # set van (datum, asin) tuples
+    existing_rows = read_history_rows()
+    already_have = {(r["date"], r["childAsin"]) for r in existing_rows}  # set van (datum, asin) tuples
+
+    # Migratie forceren: als het versleutelde bestand nog niet bestaat maar er
+    # WEL al data is (uit de oude leesbare CSV), meteen wegschrijven -- ook als
+    # er deze run toevallig geen nieuwe dagen zijn om op te halen. Anders wordt
+    # de migratie ten onrechte overgeslagen (zie: "bestaat nog niet"-foutmelding
+    # bij update_amazon.py, ook al stond de data er via de oude CSV wel degelijk).
+    if not os.path.exists(HISTORY_ENC) and existing_rows:
+        write_history_rows({(r["date"], r["childAsin"]): r for r in existing_rows})
+        print(f"   Migratie voltooid: {len(existing_rows)} bestaande rij(en) direct versleuteld weggeschreven.")
 
     ok_count = 0
     skip_count = 0
