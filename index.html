@@ -144,6 +144,10 @@
       <div id="prodlistall"></div>
       <div class="sidebarhint">Meerdere producten selecteren telt de cijfers bij elkaar op.</div>
     </div>
+    <div class="sec">
+      <div class="seclbl"><h3>Kolommen</h3><a onclick="toggleAllColumns()">alles</a></div>
+      <div id="collist"></div>
+    </div>
   </aside>
 
   <div id="app">
@@ -186,10 +190,8 @@
     <div class="box">
       <h2>Periodedata <span id="rowcount" style="color:var(--muted)"></span></h2>
       <div class="tablewrap"><table>
-        <thead><tr>
-          <th>Datum</th><th>Sales #</th><th>Sales &pound;</th><th>RSP gross</th><th>RSP net</th>
-          <th>Comm+Ad</th><th>Marge %</th><th>Marge abs</th><th>Marge Tot.</th><th>CVR</th>
-          <th>Ad Spend</th><th>ACOS</th><th>Net Margin</th><th>Net Margin %</th>
+        <thead><tr id="thead-row">
+          <th>Datum</th>
         </tr></thead>
         <tbody id="tbody"></tbody>
       </table></div>
@@ -250,6 +252,25 @@ let chartInstance = null;
 let PRODUCTS = [];        // uit products.json: [{asin,name,category}]
 let SELECTED_ASINS = new Set();
 const FIXED_CATEGORIES = ['Alkaline','Specialty','Rechargeable','Accessoires'];
+
+// Kolomdefinities voor de Periodedata-tabel -- 'Datum' zelf is altijd zichtbaar
+// en staat hier niet in, de rest kan losstaand aan/uit gezet worden.
+const COLUMN_DEFS = [
+  {key:'units', label:'Sales #', render:r => num(r.units)},
+  {key:'sales', label:'Sales \u00a3', render:r => gbp(r.sales)},
+  {key:'grossRsp', label:'RSP gross', render:r => gbp(r.grossRsp)},
+  {key:'netRsp', label:'RSP net', render:r => gbp(r.netRsp)},
+  {key:'commission', label:'Comm+Ad', render:r => gbp(r.commission)},
+  {key:'marginPct', label:'Marge %', render:r => pct(r.marginPct), cls:'pos'},
+  {key:'marginAbs', label:'Marge abs', render:r => gbp(r.marginAbs)},
+  {key:'marginTot', label:'Marge Tot.', render:r => gbp(r.marginTot)},
+  {key:'cvr', label:'CVR', render:r => r.cvr.toLocaleString('nl-NL',{maximumFractionDigits:1})+'%'},
+  {key:'adSpend', label:'Ad Spend', render:r => r.adSpend !== undefined ? gbp(r.adSpend) : '-'},
+  {key:'acos', label:'ACOS', render:r => (r.acos !== undefined && r.acos !== null) ? pct(r.acos) : '-'},
+  {key:'netMargin', label:'Net Margin', render:r => r.netMargin !== undefined ? gbp(r.netMargin) : '-'},
+  {key:'netMarginPct', label:'Net Margin %', render:r => (r.netMarginPct !== undefined && r.netMarginPct !== null) ? pct(r.netMarginPct) : '-'},
+];
+let VISIBLE_COLUMNS = new Set(COLUMN_DEFS.map(c => c.key)); // standaard: alles aan
 
 const gbp = v => '\u00a3' + v.toLocaleString('nl-NL',{minimumFractionDigits:2,maximumFractionDigits:2});
 const pct = v => (v*100).toLocaleString('nl-NL',{minimumFractionDigits:1,maximumFractionDigits:1}) + '%';
@@ -393,6 +414,7 @@ async function unlock(){
     (data.products || []).forEach(p => { if(!map[p.asin]) map[p.asin] = p; });
     PRODUCTS = Object.values(map);
     buildSidebar();
+    buildColumnFilter();
     render(data);
     document.getElementById('gate').style.display = 'none';
     document.getElementById('layout').classList.add('active');
@@ -489,6 +511,28 @@ function toggleAllCats(){
 }
 function toggleAllProducts(){ toggleAllCats(); } // zelfde effect, apart label voor duidelijkheid in de UI
 
+// --- Sidebar: welke KPI-kolommen zichtbaar zijn in de Periodedata-tabel ---
+function buildColumnFilter(){
+  const collist = document.getElementById('collist');
+  collist.innerHTML = COLUMN_DEFS.map(c => `
+    <label class="chkrow">
+      <input type="checkbox" checked onchange="onColumnToggle('${c.key}', this.checked)">
+      <span>${c.label}</span>
+    </label>`).join('');
+}
+
+function onColumnToggle(key, checked){
+  if(checked) VISIBLE_COLUMNS.add(key); else VISIBLE_COLUMNS.delete(key);
+  refreshView();
+}
+
+function toggleAllColumns(){
+  const allOn = VISIBLE_COLUMNS.size === COLUMN_DEFS.length;
+  COLUMN_DEFS.forEach(c => { if(allOn) VISIBLE_COLUMNS.delete(c.key); else VISIBLE_COLUMNS.add(c.key); });
+  document.querySelectorAll('#collist input').forEach(cb => cb.checked = !allOn);
+  refreshView();
+}
+
 function render(d){
   VAT = (d.assumptions && d.assumptions.vat) || 0;
   document.getElementById('updated').textContent = d.generated_utc;
@@ -545,15 +589,13 @@ function renderTableAndChart(rows){
   const labelMap = {day:'dagen', week:'weken', month:'maanden'};
   document.getElementById('rowcount').textContent = '(' + rows.length + ' ' + labelMap[PERIOD] + ')';
 
+  const visibleCols = COLUMN_DEFS.filter(c => VISIBLE_COLUMNS.has(c.key));
+  document.getElementById('thead-row').innerHTML =
+    '<th>Datum</th>' + visibleCols.map(c => `<th>${c.label}</th>`).join('');
+
   document.getElementById('tbody').innerHTML = rows.slice().reverse().map(r => `
-    <tr><td>${r.date}</td><td>${num(r.units)}</td><td>${gbp(r.sales)}</td>
-    <td>${gbp(r.grossRsp)}</td><td>${gbp(r.netRsp)}</td><td>${gbp(r.commission)}</td>
-    <td class="pos">${pct(r.marginPct)}</td><td>${gbp(r.marginAbs)}</td><td>${gbp(r.marginTot)}</td>
-    <td>${r.cvr.toLocaleString('nl-NL',{maximumFractionDigits:1})}%</td>
-    <td>${r.adSpend !== undefined ? gbp(r.adSpend) : '-'}</td>
-    <td>${r.acos !== undefined && r.acos !== null ? pct(r.acos) : '-'}</td>
-    <td>${r.netMargin !== undefined ? gbp(r.netMargin) : '-'}</td>
-    <td>${r.netMarginPct !== undefined && r.netMarginPct !== null ? pct(r.netMarginPct) : '-'}</td></tr>`).join('');
+    <tr><td>${r.date}</td>${visibleCols.map(c =>
+      `<td${c.cls ? ` class="${c.cls}"` : ''}>${c.render(r)}</td>`).join('')}</tr>`).join('');
 
   if(window.Chart){
     if(chartInstance) chartInstance.destroy();
