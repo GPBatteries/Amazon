@@ -26,7 +26,26 @@
   .gateerr{color:var(--err);font-size:13px;margin-top:12px;min-height:18px}
 
   /* APP */
-  #app{display:none;max-width:1440px;margin:0 auto}
+  #layout{display:none;max-width:1440px;margin:0 auto;gap:24px;align-items:flex-start}
+  #layout.active{display:flex}
+  #app{flex:1;min-width:0}
+
+  .sidebar{width:230px;flex-shrink:0;background:var(--card);border:1px solid var(--line);border-radius:13px;padding:18px;position:sticky;top:20px}
+  .sidebar h3{font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:10px}
+  .sidebar .sec{margin-bottom:20px}
+  .sidebar .sec:last-child{margin-bottom:0}
+  .sidebar .seclbl{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+  .sidebar .seclbl a{font-size:11px;color:var(--accent2);cursor:pointer;text-decoration:none}
+  .sidebar .catgrp{margin-bottom:4px}
+  .chkrow{display:flex;align-items:center;gap:9px;padding:6px 0;font-size:13px;cursor:pointer;user-select:none}
+  .chkrow input{width:15px;height:15px;accent-color:var(--accent);cursor:pointer;flex-shrink:0}
+  .chkrow .catname{font-weight:600}
+  .chkrow .count{color:var(--muted);font-size:11px;margin-left:auto;font-family:'JetBrains Mono',monospace}
+  .prodlist{margin-left:22px;border-left:1px solid var(--line);padding-left:10px}
+  .prodlist .chkrow{font-size:12.5px;color:var(--muted)}
+  .prodlist .chkrow .asincode{font-family:'JetBrains Mono',monospace;color:var(--muted);font-size:11px}
+  .sidebarhint{font-size:11px;color:var(--muted);line-height:1.4;margin-top:4px}
+  @media(max-width:900px){#layout.active{flex-direction:column}.sidebar{width:100%;position:static}}
   header{display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px;margin-bottom:20px}
   .ttl .tag{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
   .ttl h1{font-size:26px;font-weight:800;margin-top:2px;max-width:640px;line-height:1.25;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
@@ -114,7 +133,20 @@
 </div>
 
 <!-- APP -->
-<div id="app">
+<div id="layout">
+  <aside class="sidebar">
+    <div class="sec">
+      <div class="seclbl"><h3>Categorie</h3><a onclick="toggleAllCats()">alles</a></div>
+      <div id="catlist"></div>
+    </div>
+    <div class="sec">
+      <div class="seclbl"><h3>Producten</h3><a onclick="toggleAllProducts()">alles</a></div>
+      <div id="prodlistall"></div>
+      <div class="sidebarhint">Meerdere producten selecteren telt de cijfers bij elkaar op.</div>
+    </div>
+  </aside>
+
+  <div id="app">
   <header>
     <div class="ttl">
       <div class="tag">Amazon Daily</div>
@@ -178,7 +210,8 @@
       <div class="foot">Ontsleuteld in je browser. Opent in Excel met de actuele cijfers.</div>
     </div>
   </div>
-</div>
+  </div><!-- /#app -->
+</div><!-- /#layout -->
 
 <!-- MODAL: nieuw product toevoegen -->
 <div id="addModal" class="modal-overlay">
@@ -213,6 +246,9 @@ let RAW_ROWS = [];       // ongefilterde dagdata, 1x geladen bij unlock
 let VAT = 0;
 let PERIOD = 'day';
 let chartInstance = null;
+let PRODUCTS = [];        // uit products.json: [{asin,name,category}]
+let SELECTED_ASINS = new Set();
+const FIXED_CATEGORIES = ['Alkaline','Specialty','Rechargeable','Accessoires'];
 
 const gbp = v => '\u00a3' + v.toLocaleString('nl-NL',{minimumFractionDigits:2,maximumFractionDigits:2});
 const pct = v => (v*100).toLocaleString('nl-NL',{minimumFractionDigits:1,maximumFractionDigits:1}) + '%';
@@ -228,8 +264,7 @@ function isoWeekStart(dateStr){
 function monthStart(dateStr){ return dateStr.slice(0,7); }
 
 function aggregate(rows, period){
-  if(period === 'day') return rows;
-  const keyFn = period === 'week' ? isoWeekStart : monthStart;
+  const keyFn = period === 'day' ? (d => d) : period === 'week' ? isoWeekStart : monthStart;
   const groups = {};
   rows.forEach(r => {
     const k = keyFn(r.date);
@@ -285,7 +320,8 @@ function setPeriod(p){
 function refreshView(){
   const from = document.getElementById('f-from').value;
   const to = document.getElementById('f-to').value;
-  const filtered = RAW_ROWS.filter(r => (!from || r.date >= from) && (!to || r.date <= to));
+  const filtered = RAW_ROWS.filter(r =>
+    SELECTED_ASINS.has(r.asin) && (!from || r.date >= from) && (!to || r.date <= to));
   const rows = aggregate(filtered, PERIOD);
   renderTableAndChart(rows);
 }
@@ -314,6 +350,20 @@ async function fetchEnc(name){
   return await r2.arrayBuffer();
 }
 
+// products.json staat, anders dan de rest, NIET versleuteld -- gewone JSON-fetch.
+async function fetchProducts(){
+  const bust = '?t=' + Date.now();
+  try{
+    const r = await fetch('products.json' + bust, {cache:'no-store'});
+    if(r.ok) return (await r.json()).products || [];
+  }catch(e){ /* val terug op raw.githubusercontent */ }
+  try{
+    const r2 = await fetch('https://raw.githubusercontent.com/GPBatteries/Amazon/main/products.json' + bust, {cache:'no-store'});
+    if(r2.ok) return (await r2.json()).products || [];
+  }catch(e){ /* geeft hieronder lege lijst terug */ }
+  return [];
+}
+
 async function decryptBuf(buf, password){
   const data = new Uint8Array(buf);
   const salt = data.slice(0,16), iv = data.slice(16,28), ct = data.slice(28);
@@ -331,9 +381,17 @@ async function unlock(){
     const plain = await decryptBuf(await fetchEnc('payload.enc'), pw);
     const data = JSON.parse(new TextDecoder().decode(plain));
     PW = pw;
+    PRODUCTS = await fetchProducts();
+    // Vangnet: als products.json (nog) niet het geladen ASIN bevat -- bv. bij
+    // een pas toegevoegd product, of als het bestand nog leeg is -- vul de
+    // sidebar dan alsnog met wat we wél weten uit de data zelf.
+    if(!PRODUCTS.some(p => p.asin === data.asin)){
+      PRODUCTS.push({asin: data.asin, name: data.productName || data.asin, category: 'Overig'});
+    }
+    buildSidebar();
     render(data);
     document.getElementById('gate').style.display = 'none';
-    document.getElementById('app').style.display = 'block';
+    document.getElementById('layout').classList.add('active');
   }catch(e){
     errEl.textContent = 'Onjuist wachtwoord';
     btn.disabled = false; btn.textContent = 'Ontgrendelen';
@@ -347,6 +405,86 @@ function show(t){
   document.getElementById('tab-dl').classList.toggle('active', t==='dl');
 }
 
+// --- Sidebar: categorie- en productfilters, opgebouwd uit products.json ---
+function buildSidebar(){
+  SELECTED_ASINS = new Set(PRODUCTS.map(p => p.asin)); // standaard: alles aan
+
+  const byCat = {};
+  PRODUCTS.forEach(p => { (byCat[p.category] = byCat[p.category] || []).push(p); });
+  // Vaste volgorde eerst, daarbuiten vallende categorieen (bv. 'Overig') erachteraan.
+  const catOrder = [...FIXED_CATEGORIES.filter(c => byCat[c]), ...Object.keys(byCat).filter(c => !FIXED_CATEGORIES.includes(c))];
+
+  const catlist = document.getElementById('catlist');
+  catlist.innerHTML = catOrder.map(cat => {
+    const prods = byCat[cat];
+    const prodRows = prods.map(p => `
+      <label class="chkrow" data-asin="${p.asin}">
+        <input type="checkbox" checked onchange="onProductToggle('${p.asin}', this.checked)">
+        <span>${p.name}</span><span class="asincode">${p.asin}</span>
+      </label>`).join('');
+    return `
+      <div class="catgrp" data-cat="${cat}">
+        <label class="chkrow">
+          <input type="checkbox" checked onchange="onCategoryToggle('${cat}', this.checked)">
+          <span class="catname">${cat}</span><span class="count">${prods.length}</span>
+        </label>
+      </div>`;
+  }).join('');
+
+  const prodlistall = document.getElementById('prodlistall');
+  prodlistall.innerHTML = catOrder.map(cat => `
+    <div class="prodlist" data-cat-products="${cat}">
+      ${byCat[cat].map(p => `
+        <label class="chkrow" data-asin="${p.asin}">
+          <input type="checkbox" checked onchange="onProductToggle('${p.asin}', this.checked)">
+          <span>${p.name}</span>
+        </label>`).join('')}
+    </div>`).join('');
+
+  refreshView();
+}
+
+function onProductToggle(asin, checked){
+  if(checked) SELECTED_ASINS.add(asin); else SELECTED_ASINS.delete(asin);
+  syncProductCheckboxes(asin, checked);
+  syncCategoryCheckboxState();
+  refreshView();
+}
+
+function syncProductCheckboxes(asin, checked){
+  // Het ASIN staat in zowel #catlist (los, indien meerdere per cat) als
+  // #prodlistall -- beide plekken synchroon houden.
+  document.querySelectorAll(`[data-asin="${asin}"] input`).forEach(cb => cb.checked = checked);
+}
+
+function syncCategoryCheckboxState(){
+  document.querySelectorAll('#catlist .catgrp').forEach(el => {
+    const cat = el.dataset.cat;
+    const asins = PRODUCTS.filter(p => p.category === cat).map(p => p.asin);
+    const checkedCount = asins.filter(a => SELECTED_ASINS.has(a)).length;
+    const cb = el.querySelector('input');
+    cb.checked = checkedCount === asins.length;
+    cb.indeterminate = checkedCount > 0 && checkedCount < asins.length;
+  });
+}
+
+function onCategoryToggle(cat, checked){
+  PRODUCTS.filter(p => p.category === cat).forEach(p => {
+    if(checked) SELECTED_ASINS.add(p.asin); else SELECTED_ASINS.delete(p.asin);
+    syncProductCheckboxes(p.asin, checked);
+  });
+  refreshView();
+}
+
+function toggleAllCats(){
+  const allOn = SELECTED_ASINS.size === PRODUCTS.length;
+  PRODUCTS.forEach(p => { if(allOn) SELECTED_ASINS.delete(p.asin); else SELECTED_ASINS.add(p.asin); });
+  document.querySelectorAll('#catlist input, #prodlistall input').forEach(cb => cb.checked = !allOn);
+  document.querySelectorAll('#catlist .catgrp input').forEach(cb => cb.indeterminate = false);
+  refreshView();
+}
+function toggleAllProducts(){ toggleAllCats(); } // zelfde effect, apart label voor duidelijkheid in de UI
+
 function render(d){
   ASIN = d.asin;
   VAT = (d.assumptions && d.assumptions.vat) || 0;
@@ -357,7 +495,7 @@ function render(d){
   document.getElementById('dl-lastdate').textContent = d.last_date;
   document.getElementById('dl-days').textContent = d.days;
 
-  RAW_ROWS = d.rows;
+  RAW_ROWS = d.rows.map(r => ({...r, asin: r.asin || d.asin}));
   if(!RAW_ROWS.length) return;
   const last = RAW_ROWS[RAW_ROWS.length-1];
   document.getElementById('k-date').textContent = last.date;
