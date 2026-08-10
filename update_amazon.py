@@ -10,6 +10,8 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
 
+import crypto_utils
+
 # ----------------------------------------------------------------------------
 # Config
 # ----------------------------------------------------------------------------
@@ -45,18 +47,27 @@ def load_products() -> list[dict]:
 # ----------------------------------------------------------------------------
 # Data inlezen
 # ----------------------------------------------------------------------------
+def decrypt_history_csv(enc_path: str) -> pd.DataFrame:
+    """Ontsleutelt een history.csv.enc-bestand (zie crypto_utils) naar een DataFrame."""
+    password = crypto_utils.get_site_password()
+    with open(enc_path, "rb") as fh:
+        blob = fh.read()
+    plaintext = crypto_utils.decrypt_bytes(blob, password).decode("utf-8")
+    return pd.read_csv(io.StringIO(plaintext))
+
+
 def load_daily_imp() -> pd.DataFrame:
-    spapi_history = os.path.join("output", "spapi_history.csv")
+    spapi_history_enc = os.path.join("output", "spapi_history.csv.enc")
     local = os.environ.get("AMAZON_LOCAL_CSV")
     use_spapi = os.environ.get("DATA_SOURCE", "").lower() == "spapi"
 
     if use_spapi:
-        if not os.path.exists(spapi_history):
+        if not os.path.exists(spapi_history_enc):
             raise SystemExit(
-                f"DATA_SOURCE=spapi maar {spapi_history} bestaat nog niet. "
+                f"DATA_SOURCE=spapi maar {spapi_history_enc} bestaat nog niet. "
                 "Draai eerst fetch_spapi_daily.py."
             )
-        df = pd.read_csv(spapi_history)
+        df = decrypt_history_csv(spapi_history_enc)
     elif local:
         df = pd.read_csv(local)
     else:
@@ -221,16 +232,16 @@ def build(df: pd.DataFrame, asin: str):
 # ----------------------------------------------------------------------------
 def load_ads_spend() -> dict:
     """
-    Leest output/ads_spend_history.csv (indien aanwezig, gevuld door
+    Leest output/ads_spend_history.csv.enc (indien aanwezig, gevuld door
     fetch_ads_spend.py) en geeft een dict {(datum, childAsin): rij} terug.
     Ontbreekt dit bestand nog (bv. eerste keer, of de losse Ads-workflow heeft
     nog niet gedraaid), dan geeft dit gewoon een lege dict terug -- niks
     breekt, de ads-kolommen blijven dan leeg in het dashboard.
     """
-    path = os.path.join("output", "ads_spend_history.csv")
+    path = os.path.join("output", "ads_spend_history.csv.enc")
     if not os.path.exists(path):
         return {}
-    ads_df = pd.read_csv(path)
+    ads_df = decrypt_history_csv(path)
     return {(str(r["date"]), r["childAsin"]): r for _, r in ads_df.iterrows()}
 
 

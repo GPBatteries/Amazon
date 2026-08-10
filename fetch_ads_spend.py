@@ -49,6 +49,7 @@ waarom (zie get_campaign_names en request_report), zodat we dat gericht
 kunnen bijstellen zonder dat de SP-cijfers geraakt worden.
 """
 import os
+import io
 import csv
 import json
 import time
@@ -57,6 +58,8 @@ import argparse
 import datetime as dt
 
 import requests
+
+import crypto_utils
 
 PRODUCTS_FILE = "products.json"
 BASE_URL = "https://advertising-api-eu.amazon.com"  # EU-regio, bevestigd via ads_api_test.py
@@ -118,7 +121,8 @@ def load_campaign_mapping() -> dict:
     return {k: v for k, v in mapping.items() if k != "VUL_CAMPAGNE_ID_HIER_IN"}
 
 
-HISTORY_CSV = os.path.join("output", "ads_spend_history.csv")
+HISTORY_CSV_LEGACY = os.path.join("output", "ads_spend_history.csv")  # oude, leesbare naam -- wordt opgeruimd
+HISTORY_ENC = os.path.join("output", "ads_spend_history.csv.enc")
 FIELDNAMES = ["date", "childAsin", "adSpend", "adClicks", "adImpressions", "adSales14d", "adOrders14d"]
 
 CID = os.environ["ADS_CLIENT_ID"].strip()
@@ -422,21 +426,51 @@ def extract_rows(rows: list, campaign_mapping: dict, campaign_names: dict, targe
 
 
 # ----------------------------------------------------------------------------
+def read_history_rows() -> list[dict]:
+    """
+    Ontsleutelt ads_spend_history.csv.enc en geeft de rijen terug. Bestaat dat
+    bestand nog niet (bv. de eerste run na deze encryptie-update), dan wordt
+    automatisch de OUDE leesbare CSV ingelezen als die er nog staat -- zodat
+    de bestaande geschiedenis niet verloren gaat. Die oude data wordt bij de
+    volgende write() gewoon versleuteld weggeschreven (zie write_history_rows).
+    """
+    if os.path.exists(HISTORY_ENC):
+        password = crypto_utils.get_site_password()
+        with open(HISTORY_ENC, "rb") as fh:
+            blob = fh.read()
+        plaintext = crypto_utils.decrypt_bytes(blob, password).decode("utf-8")
+        return list(csv.DictReader(io.StringIO(plaintext)))
+    if os.path.exists(HISTORY_CSV_LEGACY):
+        print(f"   (Eerste run na de encryptie-update: bestaande {HISTORY_CSV_LEGACY} wordt "
+              f"overgenomen en voortaan versleuteld opgeslagen.)")
+        with open(HISTORY_CSV_LEGACY, newline="", encoding="utf-8") as fh:
+            return list(csv.DictReader(fh))
+    return []
+
+
+def write_history_rows(rows_by_key: dict):
+    """Schrijft alle rijen versleuteld terug naar ads_spend_history.csv.enc."""
+    password = crypto_utils.get_site_password()
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=FIELDNAMES)
+    writer.writeheader()
+    for key in sorted(rows_by_key.keys()):
+        writer.writerow(rows_by_key[key])
+    plaintext = buf.getvalue().encode("utf-8")
+
+    os.makedirs(os.path.dirname(HISTORY_ENC), exist_ok=True)
+    with open(HISTORY_ENC, "wb") as fh:
+        fh.write(crypto_utils.encrypt_bytes(plaintext, password))
+
+    if os.path.exists(HISTORY_CSV_LEGACY):
+        os.remove(HISTORY_CSV_LEGACY)
+
+
 def upsert_history(new_rows: list[dict]):
-    existing = {}
-    if os.path.exists(HISTORY_CSV):
-        with open(HISTORY_CSV, newline="", encoding="utf-8") as fh:
-            for r in csv.DictReader(fh):
-                existing[(r["date"], r["childAsin"])] = r
+    existing = {(r["date"], r["childAsin"]): r for r in read_history_rows()}
     for row in new_rows:
         existing[(row["date"], row["childAsin"])] = row
-
-    os.makedirs(os.path.dirname(HISTORY_CSV), exist_ok=True)
-    with open(HISTORY_CSV, "w", newline="", encoding="utf-8") as fh:
-        writer = csv.DictWriter(fh, fieldnames=FIELDNAMES)
-        writer.writeheader()
-        for key in sorted(existing.keys()):
-            writer.writerow(existing[key])
+    write_history_rows(existing)
 
 
 def parse_date(value: str) -> dt.date:
@@ -482,10 +516,7 @@ def main():
     if campaign_mapping:
         print(f"OK: {len(campaign_mapping)} campagne-override(s) geladen uit {CAMPAIGN_MAPPING_FILE}.")
 
-    already_have = set()  # set van (datum, asin) tuples
-    if not args.force and os.path.exists(HISTORY_CSV):
-        with open(HISTORY_CSV, newline="", encoding="utf-8") as fh:
-            already_have = {(r["date"], r["childAsin"]) for r in csv.DictReader(fh)}
+    already_have = set() if args.force else {(r["date"], r["childAsin"]) for r in read_history_rows()}
 
     ok_count = 0
     skip_count = 0
