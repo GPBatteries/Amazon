@@ -29,7 +29,7 @@
   #app{display:none;max-width:1040px;margin:0 auto}
   header{display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px;margin-bottom:20px}
   .ttl .tag{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
-  .ttl h1{font-size:26px;font-weight:800;margin-top:2px}
+  .ttl h1{font-size:26px;font-weight:800;margin-top:2px;max-width:640px;line-height:1.25;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
   .ttl .asin{font-family:'JetBrains Mono',monospace;color:var(--accent2);font-size:14px}
   .upd{font-size:12px;color:var(--muted);text-align:right;font-family:'JetBrains Mono',monospace}
 
@@ -88,7 +88,7 @@
   <header>
     <div class="ttl">
       <div class="tag">Amazon Daily</div>
-      <h1>Salesrapport</h1>
+      <h1 id="pname">Salesrapport</h1>
       <div class="asin" id="asin">-</div>
     </div>
     <div class="upd">Laatst bijgewerkt<br><span id="updated">-</span></div>
@@ -113,6 +113,7 @@
         <thead><tr>
           <th>Datum</th><th>Sales #</th><th>Sales &pound;</th><th>RSP gross</th><th>RSP net</th>
           <th>Comm+Ad</th><th>Marge %</th><th>Marge abs</th><th>Marge Tot.</th><th>CVR</th>
+          <th>Ad Spend</th><th>ACOS</th>
         </tr></thead>
         <tbody id="tbody"></tbody>
       </table></div>
@@ -202,6 +203,7 @@ function show(t){
 
 function render(d){
   ASIN = d.asin;
+  document.getElementById('pname').textContent = d.productName || 'Salesrapport';
   document.getElementById('asin').textContent = d.asin;
   document.getElementById('updated').textContent = d.generated_utc;
   document.getElementById('dl-updated').textContent = d.generated_utc;
@@ -221,7 +223,9 @@ function render(d){
     <tr><td>${r.date}</td><td>${num(r.units)}</td><td>${gbp(r.sales)}</td>
     <td>${gbp(r.grossRsp)}</td><td>${gbp(r.netRsp)}</td><td>${gbp(r.commission)}</td>
     <td class="pos">${pct(r.marginPct)}</td><td>${gbp(r.marginAbs)}</td><td>${gbp(r.marginTot)}</td>
-    <td>${r.cvr.toLocaleString('nl-NL',{maximumFractionDigits:1})}%</td></tr>`).join('');
+    <td>${r.cvr.toLocaleString('nl-NL',{maximumFractionDigits:1})}%</td>
+    <td>${r.adSpend !== undefined ? gbp(r.adSpend) : '-'}</td>
+    <td>${r.acos !== undefined && r.acos !== null ? pct(r.acos) : '-'}</td></tr>`).join('');
 
   if(window.Chart){
     new Chart(document.getElementById('chart'),{

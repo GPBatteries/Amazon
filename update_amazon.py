@@ -36,8 +36,18 @@ GREY = "808080"
 # Data inlezen
 # ----------------------------------------------------------------------------
 def load_daily_imp() -> pd.DataFrame:
+    spapi_history = os.path.join("output", "spapi_history.csv")
     local = os.environ.get("AMAZON_LOCAL_CSV")
-    if local:
+    use_spapi = os.environ.get("DATA_SOURCE", "").lower() == "spapi"
+
+    if use_spapi:
+        if not os.path.exists(spapi_history):
+            raise SystemExit(
+                f"DATA_SOURCE=spapi maar {spapi_history} bestaat nog niet. "
+                "Draai eerst fetch_spapi_daily.py."
+            )
+        df = pd.read_csv(spapi_history)
+    elif local:
         df = pd.read_csv(local)
     else:
         # Cache-buster + no-cache headers: dwingt Google een verse export te geven
@@ -199,7 +209,23 @@ def build(df: pd.DataFrame):
 # ----------------------------------------------------------------------------
 # Cijfers berekenen (identiek aan de Excel-formules) voor data.json / dashboard
 # ----------------------------------------------------------------------------
-def compute_rows(df: pd.DataFrame):
+def load_ads_spend() -> dict:
+    """
+    Leest output/ads_spend_history.csv (indien aanwezig, gevuld door
+    fetch_ads_spend.py) en geeft een dict {datum: rij} terug. Ontbreekt dit
+    bestand nog (bv. eerste keer, of de losse Ads-workflow heeft nog niet
+    gedraaid), dan geeft dit gewoon een lege dict terug -- niks breekt, de
+    ads-kolommen blijven dan leeg in het dashboard.
+    """
+    path = os.path.join("output", "ads_spend_history.csv")
+    if not os.path.exists(path):
+        return {}
+    ads_df = pd.read_csv(path)
+    return {str(r["date"]): r for _, r in ads_df.iterrows()}
+
+
+def compute_rows(df: pd.DataFrame, ads_spend: dict = None):
+    ads_spend = ads_spend or {}
     rows = []
     for _, r in df.iterrows():
         units = float(r["unitsOrdered"])
@@ -209,7 +235,8 @@ def compute_rows(df: pd.DataFrame):
         commission = COMMISSION_ADFEE_PCT * gross
         margin_abs = net - commission - FBA - COGS
         margin_pct = (margin_abs / net) if net else 0.0
-        rows.append({
+
+        row = {
             "date": str(r["date"]),
             "units": units,
             "sales": sales,
@@ -222,7 +249,22 @@ def compute_rows(df: pd.DataFrame):
             "marginAbs": margin_abs,
             "marginTot": margin_abs * units,
             "cvr": float(r["unitSessionPercentage"]),
-        })
+        }
+
+        # Ads-spend is optioneel en komt uit een losse databron (Ads API,
+        # via fetch_ads_spend.py) -- alleen invullen als die dag bekend is.
+        ads_row = ads_spend.get(str(r["date"]))
+        if ads_row is not None:
+            ad_spend = float(ads_row["adSpend"])
+            ad_sales14d = float(ads_row["adSales14d"])
+            row["adSpend"] = ad_spend
+            row["adClicks"] = int(ads_row["adClicks"])
+            row["adSales14d"] = ad_sales14d
+            row["adOrders14d"] = int(ads_row["adOrders14d"])
+            row["acos"] = (ad_spend / ad_sales14d) if ad_sales14d else None
+            row["tacos"] = (ad_spend / sales) if sales else None
+
+        rows.append(row)
     return rows
 
 
@@ -233,8 +275,19 @@ def main():
         raise SystemExit(f"Geen rijen gevonden voor ASIN {ASIN}.")
     n = build(df)
     generated = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
+    # Productnaam is optioneel: alleen aanwezig als fetch_spapi_daily.py 'm heeft
+    # opgehaald via de Catalog Items API. Ontbreekt dit bestand (bv. bij de
+    # Google Sheet-route), dan valt het dashboard gewoon terug op de ASIN.
+    product_name = None
+    product_meta_path = os.path.join("output", "product_meta.json")
+    if os.path.exists(product_meta_path):
+        with open(product_meta_path, encoding="utf-8") as fh:
+            product_name = json.load(fh).get("productName")
+
     meta = {
         "asin": ASIN,
+        "productName": product_name,
         "file": f"Amazon_{ASIN}.xlsx",
         "generated_utc": generated,
         "days": n,
@@ -246,6 +299,7 @@ def main():
 
     data = {
         "asin": ASIN,
+        "productName": product_name,
         "generated_utc": generated,
         "assumptions": {
             "vat": VAT_RATE,
@@ -253,7 +307,7 @@ def main():
             "fba": FBA,
             "cogs": COGS,
         },
-        "rows": compute_rows(df),
+        "rows": compute_rows(df, load_ads_spend()),
     }
     with open(os.path.join("output", "data.json"), "w", encoding="utf-8") as fh:
         json.dump(data, fh, ensure_ascii=False)
