@@ -66,7 +66,14 @@
   a.btn:hover{background:var(--accent2)}
   a.btn svg{width:18px;height:18px}
   .foot{margin-top:16px;text-align:center;font-size:12px;color:var(--muted)}
-  @media(max-width:720px){.kpis{grid-template-columns:repeat(2,1fr)}}
+  .filters{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
+  .filters .grp{display:flex;gap:6px;background:var(--card);border:1px solid var(--line);border-radius:11px;padding:5px}
+  .filters .grp button{font-family:inherit;font-size:13px;font-weight:600;color:var(--muted);background:none;border:none;padding:7px 14px;border-radius:8px;cursor:pointer;transition:.15s}
+  .filters .grp button.active{background:var(--accent);color:#fff}
+  .filters .daterange{display:flex;gap:8px;align-items:center;font-size:13px;color:var(--muted)}
+  .filters .daterange input{background:var(--card);border:1px solid var(--line);border-radius:8px;color:var(--txt);padding:7px 10px;font-family:'JetBrains Mono',monospace;font-size:13px}
+  .filters .daterange input:focus{outline:none;border-color:var(--accent)}
+  @media(max-width:720px){.kpis{grid-template-columns:repeat(2,1fr)}.filters{flex-direction:column;align-items:stretch}}
 </style>
 </head>
 <body>
@@ -106,9 +113,20 @@
       <div class="kpi"><div class="lbl">Units (laatste dag)</div><div class="val" id="k-units">-</div></div>
       <div class="kpi"><div class="lbl">Marge % (laatste dag)</div><div class="val" id="k-margin">-</div></div>
     </div>
-    <div class="box"><h2>Sales &pound; per dag</h2><div class="chartwrap"><canvas id="chart"></canvas></div></div>
+    <div class="filters">
+      <div class="grp">
+        <button id="per-day" class="active" onclick="setPeriod('day')">Dag</button>
+        <button id="per-week" onclick="setPeriod('week')">Week</button>
+        <button id="per-month" onclick="setPeriod('month')">Maand</button>
+      </div>
+      <div class="daterange">
+        <span>Van</span><input type="date" id="f-from">
+        <span>tot</span><input type="date" id="f-to">
+      </div>
+    </div>
+    <div class="box"><h2>Sales &pound; per periode</h2><div class="chartwrap"><canvas id="chart"></canvas></div></div>
     <div class="box">
-      <h2>Dagdata <span id="rowcount" style="color:var(--muted)"></span></h2>
+      <h2>Periodedata <span id="rowcount" style="color:var(--muted)"></span></h2>
       <div class="tablewrap"><table>
         <thead><tr>
           <th>Datum</th><th>Sales #</th><th>Sales &pound;</th><th>RSP gross</th><th>RSP net</th>
@@ -140,10 +158,85 @@
 const enc = new TextEncoder();
 let PW = null;          // wachtwoord blijft alleen in geheugen, deze sessie
 let ASIN = 'data';
+let RAW_ROWS = [];       // ongefilterde dagdata, 1x geladen bij unlock
+let VAT = 0;
+let PERIOD = 'day';
+let chartInstance = null;
 
 const gbp = v => '\u00a3' + v.toLocaleString('nl-NL',{minimumFractionDigits:2,maximumFractionDigits:2});
 const pct = v => (v*100).toLocaleString('nl-NL',{minimumFractionDigits:1,maximumFractionDigits:1}) + '%';
 const num = v => v.toLocaleString('nl-NL');
+
+// --- Periode-aggregatie: groepeert dagrijen tot week- of maandtotalen. ---
+function isoWeekStart(dateStr){
+  const d = new Date(dateStr + 'T00:00:00Z');
+  const day = (d.getUTCDay() + 6) % 7; // 0=maandag
+  d.setUTCDate(d.getUTCDate() - day);
+  return d.toISOString().slice(0,10);
+}
+function monthStart(dateStr){ return dateStr.slice(0,7); }
+
+function aggregate(rows, period){
+  if(period === 'day') return rows;
+  const keyFn = period === 'week' ? isoWeekStart : monthStart;
+  const groups = {};
+  rows.forEach(r => {
+    const k = keyFn(r.date);
+    if(!groups[k]) groups[k] = {date:k, units:0, sales:0, commission:0, marginTot:0, cvrSum:0, cvrCount:0,
+      adSpend:0, adSales14d:0, adClicks:0, adOrders14d:0, hasAds:false};
+    const g = groups[k];
+    g.units += r.units;
+    g.sales += r.sales;
+    g.commission += r.commission;
+    g.marginTot += r.marginTot;
+    g.cvrSum += r.cvr; g.cvrCount++;
+    if(r.adSpend !== undefined){
+      g.hasAds = true;
+      g.adSpend += r.adSpend;
+      g.adSales14d += (r.adSales14d || 0);
+      g.adClicks += (r.adClicks || 0);
+      g.adOrders14d += (r.adOrders14d || 0);
+    }
+  });
+  return Object.values(groups).sort((a,b) => a.date < b.date ? -1 : 1).map(g => {
+    const net = g.sales / (1 + VAT);
+    const row = {
+      date: g.date,
+      units: g.units,
+      sales: g.sales,
+      grossRsp: g.units ? g.sales / g.units : 0,
+      netRsp: g.units ? net / g.units : 0,
+      commission: g.commission,
+      marginTot: g.marginTot,
+      marginAbs: g.units ? g.marginTot / g.units : 0,
+      marginPct: net ? g.marginTot / net : 0,
+      cvr: g.cvrCount ? g.cvrSum / g.cvrCount : 0,
+    };
+    if(g.hasAds){
+      row.adSpend = g.adSpend;
+      row.adSales14d = g.adSales14d;
+      row.adClicks = g.adClicks;
+      row.adOrders14d = g.adOrders14d;
+      row.acos = g.adSales14d ? g.adSpend / g.adSales14d : null;
+    }
+    return row;
+  });
+}
+
+function setPeriod(p){
+  PERIOD = p;
+  ['day','week','month'].forEach(x => document.getElementById('per-'+x).classList.toggle('active', x===p));
+  refreshView();
+}
+
+function refreshView(){
+  const from = document.getElementById('f-from').value;
+  const to = document.getElementById('f-to').value;
+  const filtered = RAW_ROWS.filter(r => (!from || r.date >= from) && (!to || r.date <= to));
+  const rows = aggregate(filtered, PERIOD);
+  renderTableAndChart(rows);
+}
+
 
 async function deriveKey(password, salt, usage){
   const base = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveKey']);
@@ -203,6 +296,7 @@ function show(t){
 
 function render(d){
   ASIN = d.asin;
+  VAT = (d.assumptions && d.assumptions.vat) || 0;
   document.getElementById('pname').textContent = d.productName || 'Salesrapport';
   document.getElementById('asin').textContent = d.asin;
   document.getElementById('updated').textContent = d.generated_utc;
@@ -210,14 +304,24 @@ function render(d){
   document.getElementById('dl-lastdate').textContent = d.last_date;
   document.getElementById('dl-days').textContent = d.days;
 
-  const rows = d.rows;
-  if(!rows.length) return;
-  const last = rows[rows.length-1];
+  RAW_ROWS = d.rows;
+  if(!RAW_ROWS.length) return;
+  const last = RAW_ROWS[RAW_ROWS.length-1];
   document.getElementById('k-date').textContent = last.date;
   document.getElementById('k-sales').textContent = gbp(last.sales);
   document.getElementById('k-units').textContent = num(last.units);
   document.getElementById('k-margin').textContent = pct(last.marginPct);
-  document.getElementById('rowcount').textContent = '(' + rows.length + ' dagen)';
+
+  // Datumvelden vullen met de volledige beschikbare periode als startwaarde
+  document.getElementById('f-from').value = RAW_ROWS[0].date;
+  document.getElementById('f-to').value = last.date;
+
+  refreshView();
+}
+
+function renderTableAndChart(rows){
+  const labelMap = {day:'dagen', week:'weken', month:'maanden'};
+  document.getElementById('rowcount').textContent = '(' + rows.length + ' ' + labelMap[PERIOD] + ')';
 
   document.getElementById('tbody').innerHTML = rows.slice().reverse().map(r => `
     <tr><td>${r.date}</td><td>${num(r.units)}</td><td>${gbp(r.sales)}</td>
@@ -228,7 +332,8 @@ function render(d){
     <td>${r.acos !== undefined && r.acos !== null ? pct(r.acos) : '-'}</td></tr>`).join('');
 
   if(window.Chart){
-    new Chart(document.getElementById('chart'),{
+    if(chartInstance) chartInstance.destroy();
+    chartInstance = new Chart(document.getElementById('chart'),{
       type:'line',
       data:{labels:rows.map(r=>r.date),datasets:[{data:rows.map(r=>r.sales),borderColor:'#3fb950',
         backgroundColor:'rgba(63,185,80,.12)',fill:true,tension:.3,pointRadius:3,pointBackgroundColor:'#3fb950',borderWidth:2}]},
@@ -259,6 +364,8 @@ async function downloadExcel(){
 document.getElementById('unlock').addEventListener('click', unlock);
 document.getElementById('pw').addEventListener('keydown', e => { if(e.key==='Enter') unlock(); });
 document.getElementById('download').addEventListener('click', downloadExcel);
+document.getElementById('f-from').addEventListener('change', refreshView);
+document.getElementById('f-to').addEventListener('change', refreshView);
 </script>
 </body>
 </html>
