@@ -58,12 +58,32 @@ BASE_URL = "https://advertising-api-eu.amazon.com"  # EU-regio, bevestigd via ad
 
 CAMPAIGN_MAPPING_FILE = "campaign_mapping.json"
 
-# De 3 advertentietypes die Amazon aanbiedt. Elk heeft een eigen reportTypeId
-# en een eigen campagnelijst-endpoint (zie get_campaign_names).
+# De 3 advertentietypes die Amazon aanbiedt. Elk heeft een eigen reportTypeId,
+# eigen toegestane kolomnamen, EN eigen veldnamen voor "omzet"/"orders" (SP
+# gebruikt sales14d/purchases14d met 14-dagen attributie, SD gebruikt gewoon
+# sales/purchasesClicks -- bevestigd via Amazon's eigen foutmeldingen die de
+# toegestane kolommen exact opnoemen).
 AD_PRODUCTS = [
-    {"key": "SPONSORED_PRODUCTS", "reportTypeId": "spCampaigns", "label": "Sponsored Products"},
-    {"key": "SPONSORED_BRANDS", "reportTypeId": "sbCampaigns", "label": "Sponsored Brands"},
-    {"key": "SPONSORED_DISPLAY", "reportTypeId": "sdCampaigns", "label": "Sponsored Display"},
+    {
+        "key": "SPONSORED_PRODUCTS", "reportTypeId": "spCampaigns", "label": "Sponsored Products",
+        "columns": ["date", "campaignId", "cost", "clicks", "impressions", "sales14d", "purchases14d"],
+        "salesField": "sales14d", "ordersField": "purchases14d",
+    },
+    {
+        "key": "SPONSORED_BRANDS", "reportTypeId": "sbCampaigns", "label": "Sponsored Brands",
+        # LET OP: Amazon's foutmelding met toegestane kolommen was afgekapt na
+        # "newToBr..." -- "purchases" is bevestigd toegestaan, "sales" is een
+        # aanname (nog niet 100% bevestigd, zie get_campaign_names_sb-comment).
+        "columns": ["date", "campaignId", "cost", "clicks", "impressions", "sales", "purchases"],
+        "salesField": "sales", "ordersField": "purchases",
+    },
+    {
+        "key": "SPONSORED_DISPLAY", "reportTypeId": "sdCampaigns", "label": "Sponsored Display",
+        # Bevestigd via Amazon's foutmelding: "sales" en "purchasesClicks" staan
+        # expliciet in de toegestane kolommenlijst.
+        "columns": ["date", "campaignId", "cost", "clicks", "impressions", "sales", "purchasesClicks"],
+        "salesField": "sales", "ordersField": "purchasesClicks",
+    },
 ]
 
 
@@ -214,7 +234,7 @@ def _retry_wait(response: requests.Response, attempt: int) -> int:
 
 
 # ----------------------------------------------------------------------------
-def request_report(access_token: str, day: dt.date, ad_product: str, report_type_id: str) -> str:
+def request_report(access_token: str, day: dt.date, ad_product: str, report_type_id: str, columns: list) -> str:
     """Vraagt een campagne-rapport aan voor 1 dag + 1 advertentietype. Geeft reportId terug."""
     body = {
         "name": f"{report_type_id} report {day}",
@@ -223,15 +243,7 @@ def request_report(access_token: str, day: dt.date, ad_product: str, report_type
         "configuration": {
             "adProduct": ad_product,
             "groupBy": ["campaign"],
-            "columns": [
-                "date",
-                "campaignId",
-                "cost",
-                "clicks",
-                "impressions",
-                "sales14d",
-                "purchases14d",
-            ],
+            "columns": columns,
             "reportTypeId": report_type_id,
             "timeUnit": "DAILY",
             "format": "GZIP_JSON",
@@ -309,10 +321,14 @@ def download_report(url: str) -> list:
 
 
 # ----------------------------------------------------------------------------
-def extract_row(rows: list, day: dt.date, campaign_mapping: dict, campaign_names: dict) -> dict:
+def extract_row(rows: list, day: dt.date, campaign_mapping: dict, campaign_names: dict,
+                 sales_field: str = "sales14d", orders_field: str = "purchases14d") -> dict:
     """
     Telt alle campagnes voor ASIN B00CO00Y32 die dag bij elkaar op (er kunnen
-    meerdere Sponsored Products-campagnes tegelijk voor hetzelfde product lopen).
+    meerdere campagnes tegelijk voor hetzelfde product lopen). sales_field en
+    orders_field verschillen per advertentietype (zie AD_PRODUCTS) -- SP
+    gebruikt sales14d/purchases14d (14-dagen attributie), SB/SD gebruiken
+    andere kolomnamen.
 
     Matching-logica per campagne, in deze volgorde:
       1. Staat het campaignId in campaign_mapping.json? -> die koppeling geldt
@@ -339,8 +355,8 @@ def extract_row(rows: list, day: dt.date, campaign_mapping: dict, campaign_names
         spend += row.get("cost", 0) or 0
         clicks += row.get("clicks", 0) or 0
         impressions += row.get("impressions", 0) or 0
-        sales += row.get("sales14d", 0) or 0
-        orders += row.get("purchases14d", 0) or 0
+        sales += row.get(sales_field, 0) or 0
+        orders += row.get(orders_field, 0) or 0
 
     if matched_via_override:
         print(f"   ({matched_via_override} campagne(s) meegeteld via campaign_mapping.json-override)")
@@ -437,10 +453,11 @@ def main():
         any_success = False
         for product in AD_PRODUCTS:
             try:
-                report_id = request_report(access_token, day, product["key"], product["reportTypeId"])
+                report_id = request_report(access_token, day, product["key"], product["reportTypeId"], product["columns"])
                 download_url = poll_report(access_token, report_id)
                 rows = download_report(download_url)
-                sub_row = extract_row(rows, day, campaign_mapping, campaign_names)
+                sub_row = extract_row(rows, day, campaign_mapping, campaign_names,
+                                       product["salesField"], product["ordersField"])
             except Exception as e:
                 print(f"   [{product['label']}] FOUT bij {day}: {e}. Dit advertentietype wordt "
                       f"overgeslagen voor deze dag (andere types gaan door).")
