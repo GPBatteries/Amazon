@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   :root{--bg:#0e1117;--card:#161b22;--line:#262c36;--txt:#e6edf3;--muted:#8b949e;--accent:#2ea043;--accent2:#3fb950;--err:#f85149}
   *{box-sizing:border-box;margin:0;padding:0}
@@ -26,9 +27,9 @@
   .gateerr{color:var(--err);font-size:13px;margin-top:12px;min-height:18px}
 
   /* APP */
-  #layout{display:none;max-width:1440px;margin:0 auto;gap:24px;align-items:flex-start}
-  #layout.active{display:flex}
-  #app{flex:1;min-width:0}
+  #layout{display:none;max-width:1440px;margin:0 auto}
+  #layout.active{display:block}
+  #app{width:100%}
 
   .sidebar{width:230px;flex-shrink:0;background:var(--card);border:1px solid var(--line);border-radius:13px;padding:18px;position:sticky;top:20px}
   .sidebar h3{font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:10px}
@@ -45,14 +46,14 @@
   .prodlist .chkrow{font-size:12.5px;color:var(--muted)}
   .prodlist .chkrow .asincode{font-family:'JetBrains Mono',monospace;color:var(--muted);font-size:11px}
   .sidebarhint{font-size:11px;color:var(--muted);line-height:1.4;margin-top:4px}
-  @media(max-width:900px){#layout.active{flex-direction:column}.sidebar{width:100%;position:static}}
+  @media(max-width:900px){.periodrow{flex-direction:column}.sidebar{width:100%;position:static}}
   header{display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px;margin-bottom:20px}
   .ttl .tag{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
   .ttl h1{font-size:26px;font-weight:800;margin-top:2px;max-width:640px;line-height:1.25;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
   .ttl .asin{font-family:'JetBrains Mono',monospace;color:var(--accent2);font-size:14px}
   .upd{font-size:12px;color:var(--muted);text-align:right;font-family:'JetBrains Mono',monospace}
 
-  .tabs{display:flex;gap:6px;background:var(--card);border:1px solid var(--line);border-radius:11px;padding:5px;width:max-content;margin-bottom:22px}
+  .tabs{display:flex;gap:6px;background:var(--card);border:1px solid var(--line);border-radius:11px;padding:5px;width:max-content}
   .tabs button{font-family:inherit;font-size:14px;font-weight:600;color:var(--muted);background:none;border:none;padding:9px 18px;border-radius:8px;cursor:pointer;transition:.15s}
   .tabs button.active{background:var(--accent);color:#fff}
   .panel{display:none}.panel.active{display:block}
@@ -78,7 +79,9 @@
   .colfilter-dropdown .seclbl h3{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
   .colfilter-dropdown .seclbl a{font-size:11px;color:var(--accent2);cursor:pointer;text-decoration:none}
   .colfilter-dropdown .chkrow{font-size:12.5px;padding:5px 0}
-  .colfilter-dropdown .collistscroll{max-height:280px;overflow-y:auto}
+  .periodrow{display:flex;gap:24px;align-items:flex-start}
+  .periodbox{flex:1;min-width:0}
+  #exportbtn{margin-right:2px}
   .chartwrap{position:relative;height:260px}
 
   .tablewrap{overflow-x:auto}
@@ -108,8 +111,8 @@
   .filters .daterange input:focus{outline:none;border-color:var(--accent)}
   @media(max-width:720px){.kpis{grid-template-columns:repeat(2,1fr)}.filters{flex-direction:column;align-items:stretch}}
 
-  .tabsrow{display:flex;align-items:center;gap:12px;margin-bottom:22px}
-  .addbtn{width:38px;height:38px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--accent2);font-size:20px;font-weight:700;cursor:pointer;transition:.15s;line-height:1}
+  .tabsrow{display:flex;align-items:stretch;gap:12px;margin-bottom:22px}
+  .addbtn{width:48px;display:flex;align-items:center;justify-content:center;border-radius:11px;border:1px solid var(--line);background:var(--card);color:var(--accent2);font-size:22px;font-weight:700;cursor:pointer;transition:.15s;line-height:1}
   .addbtn:hover{background:var(--accent);color:#fff;border-color:var(--accent)}
 
   .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);align-items:center;justify-content:center;z-index:20;padding:20px}
@@ -148,18 +151,6 @@
 
 <!-- APP -->
 <div id="layout">
-  <aside class="sidebar">
-    <div class="sec">
-      <div class="seclbl"><h3>Categorie</h3><a onclick="toggleAllCats()">alles</a></div>
-      <div id="catlist"></div>
-    </div>
-    <div class="sec">
-      <div class="seclbl"><h3>Producten</h3><a onclick="toggleAllProducts()">alles</a></div>
-      <div id="prodlistall"></div>
-      <div class="sidebarhint">Meerdere producten selecteren telt de cijfers bij elkaar op.</div>
-    </div>
-  </aside>
-
   <div id="app">
   <header>
     <div class="ttl">
@@ -197,24 +188,41 @@
       </div>
     </div>
     <div class="box"><h2>Sales &pound; per periode</h2><div class="chartwrap"><canvas id="chart"></canvas></div></div>
-    <div class="box">
-      <h2>Periodedata <span class="rc" id="rowcount"></span><span class="spacer"></span>
-        <span class="colfilter-wrap">
-          <button class="colfilter-btn" id="colfilter-btn" onclick="toggleColDropdown(event)" title="Kolommen tonen/verbergen">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+    <div class="periodrow">
+      <aside class="sidebar">
+        <div class="sec">
+          <div class="seclbl"><h3>Categorie</h3><a onclick="toggleAllCats()">alles</a></div>
+          <div id="catlist"></div>
+        </div>
+        <div class="sec">
+          <div class="seclbl"><h3>Producten</h3><a onclick="toggleAllProducts()">alles</a></div>
+          <div id="prodlistall"></div>
+          <div class="sidebarhint">Meerdere producten selecteren telt de cijfers bij elkaar op.</div>
+        </div>
+      </aside>
+
+      <div class="box periodbox">
+        <h2>Periodedata <span class="rc" id="rowcount"></span><span class="spacer"></span>
+          <button class="colfilter-btn" id="exportbtn" onclick="exportToExcel()" title="Exporteren naar Excel">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           </button>
-          <div class="colfilter-dropdown" id="colDropdown">
-            <div class="seclbl"><h3>Kolommen</h3><a onclick="toggleAllColumns()">alles</a></div>
-            <div class="collistscroll" id="collist"></div>
-          </div>
-        </span>
-      </h2>
-      <div class="tablewrap"><table>
-        <thead><tr id="thead-row">
-          <th>Datum</th>
-        </tr></thead>
-        <tbody id="tbody"></tbody>
-      </table></div>
+          <span class="colfilter-wrap">
+            <button class="colfilter-btn" id="colfilter-btn" onclick="toggleColDropdown(event)" title="Kolommen tonen/verbergen">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+            </button>
+            <div class="colfilter-dropdown" id="colDropdown">
+              <div class="seclbl"><h3>Kolommen</h3><a onclick="toggleAllColumns()">alles</a></div>
+              <div class="collistscroll" id="collist"></div>
+            </div>
+          </span>
+        </h2>
+        <div class="tablewrap"><table>
+          <thead><tr id="thead-row">
+            <th>Datum</th>
+          </tr></thead>
+          <tbody id="tbody"></tbody>
+        </table></div>
+      </div>
     </div>
   </div>
 
@@ -276,19 +284,19 @@ const FIXED_CATEGORIES = ['Alkaline','Specialty','Rechargeable','Accessoires'];
 // Kolomdefinities voor de Periodedata-tabel -- 'Datum' zelf is altijd zichtbaar
 // en staat hier niet in, de rest kan losstaand aan/uit gezet worden.
 const COLUMN_DEFS = [
-  {key:'units', label:'Sales #', render:r => num(r.units)},
-  {key:'sales', label:'Sales \u00a3', render:r => gbp(r.sales)},
-  {key:'grossRsp', label:'RSP gross', render:r => gbp(r.grossRsp)},
-  {key:'netRsp', label:'RSP net', render:r => gbp(r.netRsp)},
-  {key:'commission', label:'Comm+Ad', render:r => gbp(r.commission)},
-  {key:'marginPct', label:'Marge %', render:r => pct(r.marginPct), cls:'pos'},
-  {key:'marginAbs', label:'Marge abs', render:r => gbp(r.marginAbs)},
-  {key:'marginTot', label:'Marge Tot.', render:r => gbp(r.marginTot)},
-  {key:'cvr', label:'CVR', render:r => r.cvr.toLocaleString('nl-NL',{maximumFractionDigits:1})+'%'},
-  {key:'adSpend', label:'Ad Spend', render:r => r.adSpend !== undefined ? gbp(r.adSpend) : '-'},
-  {key:'acos', label:'ACOS', render:r => (r.acos !== undefined && r.acos !== null) ? pct(r.acos) : '-'},
-  {key:'netMargin', label:'Net Margin', render:r => r.netMargin !== undefined ? gbp(r.netMargin) : '-'},
-  {key:'netMarginPct', label:'Net Margin %', render:r => (r.netMarginPct !== undefined && r.netMarginPct !== null) ? pct(r.netMarginPct) : '-'},
+  {key:'units', label:'Sales #', render:r => num(r.units), raw:r => r.units},
+  {key:'sales', label:'Sales \u00a3', render:r => gbp(r.sales), raw:r => r.sales},
+  {key:'grossRsp', label:'RSP gross', render:r => gbp(r.grossRsp), raw:r => r.grossRsp},
+  {key:'netRsp', label:'RSP net', render:r => gbp(r.netRsp), raw:r => r.netRsp},
+  {key:'commission', label:'Comm+Ad', render:r => gbp(r.commission), raw:r => r.commission},
+  {key:'marginPct', label:'Marge %', render:r => pct(r.marginPct), cls:'pos', raw:r => r.marginPct},
+  {key:'marginAbs', label:'Marge abs', render:r => gbp(r.marginAbs), raw:r => r.marginAbs},
+  {key:'marginTot', label:'Marge Tot.', render:r => gbp(r.marginTot), raw:r => r.marginTot},
+  {key:'cvr', label:'CVR', render:r => r.cvr.toLocaleString('nl-NL',{maximumFractionDigits:1})+'%', raw:r => r.cvr},
+  {key:'adSpend', label:'Ad Spend', render:r => r.adSpend !== undefined ? gbp(r.adSpend) : '-', raw:r => r.adSpend ?? ''},
+  {key:'acos', label:'ACOS', render:r => (r.acos !== undefined && r.acos !== null) ? pct(r.acos) : '-', raw:r => r.acos ?? ''},
+  {key:'netMargin', label:'Net Margin', render:r => r.netMargin !== undefined ? gbp(r.netMargin) : '-', raw:r => r.netMargin ?? ''},
+  {key:'netMarginPct', label:'Net Margin %', render:r => (r.netMarginPct !== undefined && r.netMarginPct !== null) ? pct(r.netMarginPct) : '-', raw:r => r.netMarginPct ?? ''},
 ];
 let VISIBLE_COLUMNS = new Set(COLUMN_DEFS.map(c => c.key)); // standaard: alles aan
 
@@ -558,6 +566,27 @@ function toggleColDropdown(e){
   document.getElementById('colDropdown').classList.toggle('active');
   document.getElementById('colfilter-btn').classList.toggle('active');
 }
+
+// --- Exporteren naar Excel: gebruikt exact de huidige product-/categoriefilter,
+// datumbereik, periode (dag/week/maand) en aangevinkte KPI-kolommen. ---
+function exportToExcel(){
+  if(!window.XLSX){ alert('Export-library nog niet geladen, probeer het zo nogmaals.'); return; }
+  if(!LAST_RENDERED_ROWS.length){ alert('Geen data om te exporteren.'); return; }
+
+  const visibleCols = COLUMN_DEFS.filter(c => VISIBLE_COLUMNS.has(c.key));
+  const header = ['Datum', ...visibleCols.map(c => c.label)];
+  const dataRows = LAST_RENDERED_ROWS.slice().reverse().map(r =>
+    [r.date, ...visibleCols.map(c => c.raw(r))]);
+
+  const ws = XLSX.utils.aoa_to_sheet([header, ...dataRows]);
+  ws['!cols'] = header.map(() => ({wch: 14}));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Periodedata');
+
+  const periodLabel = {day:'dagelijks', week:'wekelijks', month:'maandelijks'}[PERIOD];
+  const asinPart = SELECTED_ASINS.size === 1 ? [...SELECTED_ASINS][0] : `${SELECTED_ASINS.size}producten`;
+  XLSX.writeFile(wb, `Amazon_export_${asinPart}_${periodLabel}_${new Date().toISOString().slice(0,10)}.xlsx`);
+}
 // Dropdown sluiten bij een klik ergens anders op de pagina (maar niet bij een
 // klik binnen de dropdown zelf, anders sluit hij meteen bij het aanvinken).
 document.addEventListener('click', (e) => {
@@ -621,7 +650,10 @@ function updateDownloadMeta(){
   document.getElementById('dl-days').textContent = rowsForAsin.length;
 }
 
+let LAST_RENDERED_ROWS = [];
+
 function renderTableAndChart(rows){
+  LAST_RENDERED_ROWS = rows;
   const labelMap = {day:'dagen', week:'weken', month:'maanden'};
   document.getElementById('rowcount').textContent = '(' + rows.length + ' ' + labelMap[PERIOD] + ')';
 
