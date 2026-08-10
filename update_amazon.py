@@ -264,6 +264,15 @@ def compute_rows(df: pd.DataFrame, ads_spend: dict = None):
             row["acos"] = (ad_spend / ad_sales14d) if ad_sales14d else None
             row["tacos"] = (ad_spend / sales) if sales else None
 
+            # NET MARGIN = totale marge van die dag MINUS de advertentiekosten
+            # die dag. NET MARGIN % = die net margin t.o.v. de TOTALE netto-omzet
+            # van die dag (net is hier de prijs per eenheid, dus vermenigvuldigen
+            # met units voor het totaal -- anders klopt de verhouding niet).
+            net_total = net * units
+            net_margin = row["marginTot"] - ad_spend
+            row["netMargin"] = net_margin
+            row["netMarginPct"] = (net_margin / net_total) if net_total else None
+
         rows.append(row)
     return rows
 

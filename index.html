@@ -131,7 +131,7 @@
         <thead><tr>
           <th>Datum</th><th>Sales #</th><th>Sales &pound;</th><th>RSP gross</th><th>RSP net</th>
           <th>Comm+Ad</th><th>Marge %</th><th>Marge abs</th><th>Marge Tot.</th><th>CVR</th>
-          <th>Ad Spend</th><th>ACOS</th>
+          <th>Ad Spend</th><th>ACOS</th><th>Net Margin</th><th>Net Margin %</th>
         </tr></thead>
         <tbody id="tbody"></tbody>
       </table></div>
@@ -218,6 +218,8 @@ function aggregate(rows, period){
       row.adClicks = g.adClicks;
       row.adOrders14d = g.adOrders14d;
       row.acos = g.adSales14d ? g.adSpend / g.adSales14d : null;
+      row.netMargin = g.marginTot - g.adSpend;
+      row.netMarginPct = net ? row.netMargin / net : null;
     }
     return row;
   });
@@ -329,7 +331,9 @@ function renderTableAndChart(rows){
     <td class="pos">${pct(r.marginPct)}</td><td>${gbp(r.marginAbs)}</td><td>${gbp(r.marginTot)}</td>
     <td>${r.cvr.toLocaleString('nl-NL',{maximumFractionDigits:1})}%</td>
     <td>${r.adSpend !== undefined ? gbp(r.adSpend) : '-'}</td>
-    <td>${r.acos !== undefined && r.acos !== null ? pct(r.acos) : '-'}</td></tr>`).join('');
+    <td>${r.acos !== undefined && r.acos !== null ? pct(r.acos) : '-'}</td>
+    <td>${r.netMargin !== undefined ? gbp(r.netMargin) : '-'}</td>
+    <td>${r.netMarginPct !== undefined && r.netMarginPct !== null ? pct(r.netMarginPct) : '-'}</td></tr>`).join('');
 
   if(window.Chart){
     if(chartInstance) chartInstance.destroy();
