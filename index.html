@@ -64,7 +64,21 @@
   .kpi .val.mono{font-family:'JetBrains Mono',monospace;font-size:20px}
 
   .box{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:18px;margin-bottom:18px}
-  .box h2{font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:14px}
+  .box h2{font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+  .box h2 .rc{color:var(--muted);font-weight:600;text-transform:none;letter-spacing:0}
+  .box h2 .spacer{flex:1}
+
+  .colfilter-wrap{position:relative}
+  .colfilter-btn{display:flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--muted);cursor:pointer;transition:.15s}
+  .colfilter-btn:hover,.colfilter-btn.active{border-color:var(--accent);color:var(--accent2)}
+  .colfilter-btn svg{width:14px;height:14px}
+  .colfilter-dropdown{display:none;position:absolute;right:0;top:34px;z-index:15;width:220px;background:var(--card);border:1px solid var(--line);border-radius:11px;padding:14px;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+  .colfilter-dropdown.active{display:block}
+  .colfilter-dropdown .seclbl{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;text-transform:none}
+  .colfilter-dropdown .seclbl h3{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+  .colfilter-dropdown .seclbl a{font-size:11px;color:var(--accent2);cursor:pointer;text-decoration:none}
+  .colfilter-dropdown .chkrow{font-size:12.5px;padding:5px 0}
+  .colfilter-dropdown .collistscroll{max-height:280px;overflow-y:auto}
   .chartwrap{position:relative;height:260px}
 
   .tablewrap{overflow-x:auto}
@@ -144,10 +158,6 @@
       <div id="prodlistall"></div>
       <div class="sidebarhint">Meerdere producten selecteren telt de cijfers bij elkaar op.</div>
     </div>
-    <div class="sec">
-      <div class="seclbl"><h3>Kolommen</h3><a onclick="toggleAllColumns()">alles</a></div>
-      <div id="collist"></div>
-    </div>
   </aside>
 
   <div id="app">
@@ -188,7 +198,17 @@
     </div>
     <div class="box"><h2>Sales &pound; per periode</h2><div class="chartwrap"><canvas id="chart"></canvas></div></div>
     <div class="box">
-      <h2>Periodedata <span id="rowcount" style="color:var(--muted)"></span></h2>
+      <h2>Periodedata <span class="rc" id="rowcount"></span><span class="spacer"></span>
+        <span class="colfilter-wrap">
+          <button class="colfilter-btn" id="colfilter-btn" onclick="toggleColDropdown(event)" title="Kolommen tonen/verbergen">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+          </button>
+          <div class="colfilter-dropdown" id="colDropdown">
+            <div class="seclbl"><h3>Kolommen</h3><a onclick="toggleAllColumns()">alles</a></div>
+            <div class="collistscroll" id="collist"></div>
+          </div>
+        </span>
+      </h2>
       <div class="tablewrap"><table>
         <thead><tr id="thead-row">
           <th>Datum</th>
@@ -532,6 +552,22 @@ function toggleAllColumns(){
   document.querySelectorAll('#collist input').forEach(cb => cb.checked = !allOn);
   refreshView();
 }
+
+function toggleColDropdown(e){
+  e.stopPropagation();
+  document.getElementById('colDropdown').classList.toggle('active');
+  document.getElementById('colfilter-btn').classList.toggle('active');
+}
+// Dropdown sluiten bij een klik ergens anders op de pagina (maar niet bij een
+// klik binnen de dropdown zelf, anders sluit hij meteen bij het aanvinken).
+document.addEventListener('click', (e) => {
+  const dropdown = document.getElementById('colDropdown');
+  const btn = document.getElementById('colfilter-btn');
+  if(dropdown && !dropdown.contains(e.target) && e.target !== btn && !btn.contains(e.target)){
+    dropdown.classList.remove('active');
+    btn.classList.remove('active');
+  }
+});
 
 function render(d){
   VAT = (d.assumptions && d.assumptions.vat) || 0;
