@@ -74,6 +74,27 @@
   .filters .daterange input{background:var(--card);border:1px solid var(--line);border-radius:8px;color:var(--txt);padding:7px 10px;font-family:'JetBrains Mono',monospace;font-size:13px}
   .filters .daterange input:focus{outline:none;border-color:var(--accent)}
   @media(max-width:720px){.kpis{grid-template-columns:repeat(2,1fr)}.filters{flex-direction:column;align-items:stretch}}
+
+  .tabsrow{display:flex;align-items:center;gap:12px;margin-bottom:22px}
+  .addbtn{width:38px;height:38px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--accent2);font-size:20px;font-weight:700;cursor:pointer;transition:.15s;line-height:1}
+  .addbtn:hover{background:var(--accent);color:#fff;border-color:var(--accent)}
+
+  .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);align-items:center;justify-content:center;z-index:20;padding:20px}
+  .modal-overlay.active{display:flex}
+  .modal{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:28px;max-width:380px;width:100%}
+  .modal h2{font-size:18px;font-weight:800;margin-bottom:6px}
+  .modalhint{font-size:12px;color:var(--muted);margin-bottom:18px;line-height:1.4}
+  .modal label{display:block;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;margin:14px 0 6px}
+  .modal input{width:100%;padding:11px 13px;border-radius:9px;border:1px solid var(--line);background:#0e1117;color:var(--txt);font-family:'Manrope';font-size:14px;outline:none}
+  .modal input:focus{border-color:var(--accent)}
+  .modalerr{color:var(--err);font-size:13px;margin-top:12px;min-height:18px}
+  .modalbtns{display:flex;gap:10px;margin-top:8px}
+  .modalbtns button{flex:1;padding:12px;border-radius:9px;border:none;font-weight:600;font-size:14px;cursor:pointer;font-family:'Manrope';transition:.15s}
+  .btn-secondary{background:none;border:1px solid var(--line) !important;color:var(--muted)}
+  .btn-secondary:hover{border-color:var(--muted) !important}
+  .btn-primary{background:var(--accent);color:#fff}
+  .btn-primary:hover{background:var(--accent2)}
+  .btn-primary:disabled{opacity:.6;cursor:default}
 </style>
 </head>
 <body>
@@ -101,9 +122,12 @@
     <div class="upd">Laatst bijgewerkt<br><span id="updated">-</span></div>
   </header>
 
-  <div class="tabs">
-    <button id="tab-dash" class="active" onclick="show('dash')">Dashboard</button>
-    <button id="tab-dl" onclick="show('dl')">Download</button>
+  <div class="tabsrow">
+    <div class="tabs">
+      <button id="tab-dash" class="active" onclick="show('dash')">Dashboard</button>
+      <button id="tab-dl" onclick="show('dl')">Download</button>
+    </div>
+    <button class="addbtn" id="openAddProduct" title="Product toevoegen">+</button>
   </div>
 
   <div id="panel-dash" class="panel active">
@@ -150,6 +174,25 @@
         <span id="dl-label">Download Excel</span>
       </a>
       <div class="foot">Ontsleuteld in je browser. Opent in Excel met de actuele cijfers.</div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: nieuw product toevoegen -->
+<div id="addModal" class="modal-overlay">
+  <div class="modal">
+    <h2>Product toevoegen</h2>
+    <p class="modalhint">Wordt weggeschreven naar products.json. De volgende dagelijkse API-run neemt dit ASIN automatisch mee.</p>
+    <label>ASIN</label>
+    <input id="add-asin" type="text" placeholder="B0XXXXXXXX" maxlength="10" autocomplete="off">
+    <label>Productnaam</label>
+    <input id="add-name" type="text" placeholder="bv. 1.5V AAA Batteries 24-pack" autocomplete="off">
+    <label>Categorie</label>
+    <input id="add-category" type="text" placeholder="bv. Alkaline" autocomplete="off">
+    <div class="modalerr" id="add-err"></div>
+    <div class="modalbtns">
+      <button class="btn-secondary" id="add-cancel">Annuleren</button>
+      <button class="btn-primary" id="add-submit">Toevoegen</button>
     </div>
   </div>
 </div>
@@ -370,6 +413,56 @@ document.getElementById('pw').addEventListener('keydown', e => { if(e.key==='Ent
 document.getElementById('download').addEventListener('click', downloadExcel);
 document.getElementById('f-from').addEventListener('change', refreshView);
 document.getElementById('f-to').addEventListener('change', refreshView);
+
+// --- Product toevoegen (via Cloudflare Worker, zie cloudflare-worker/add-product.js) ---
+// Pas deze twee waarden aan naar jouw eigen Worker-deployment.
+const WORKER_URL = 'https://amazon-dashboard-add-product.JOUW-SUBDOMEIN.workers.dev';
+const WORKER_SECRET = 'VERVANG_DIT_MET_JE_EIGEN_WORKER_SECRET';
+
+function openAddModal(){
+  document.getElementById('add-asin').value = '';
+  document.getElementById('add-name').value = '';
+  document.getElementById('add-category').value = '';
+  document.getElementById('add-err').textContent = '';
+  document.getElementById('addModal').classList.add('active');
+}
+function closeAddModal(){
+  document.getElementById('addModal').classList.remove('active');
+}
+
+async function submitAddProduct(){
+  const asin = document.getElementById('add-asin').value.trim().toUpperCase();
+  const name = document.getElementById('add-name').value.trim();
+  const category = document.getElementById('add-category').value.trim();
+  const errEl = document.getElementById('add-err');
+  const btn = document.getElementById('add-submit');
+
+  if(!/^[A-Z0-9]{10}$/.test(asin)){ errEl.textContent = 'ASIN moet exact 10 hoofdletters/cijfers zijn.'; return; }
+  if(!name){ errEl.textContent = 'Vul een productnaam in.'; return; }
+  if(!category){ errEl.textContent = 'Vul een categorie in.'; return; }
+
+  errEl.textContent = '';
+  btn.disabled = true; btn.textContent = 'Toevoegen...';
+  try{
+    const r = await fetch(WORKER_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Worker-Secret': WORKER_SECRET },
+      body: JSON.stringify({ asin, name, category }),
+    });
+    const data = await r.json();
+    if(!r.ok){ throw new Error(data.error || ('HTTP ' + r.status)); }
+    closeAddModal();
+    alert('Product ' + asin + ' toegevoegd. De volgende API-run neemt dit automatisch mee.');
+  }catch(e){
+    errEl.textContent = 'Mislukt: ' + e.message;
+  }
+  btn.disabled = false; btn.textContent = 'Toevoegen';
+}
+
+document.getElementById('openAddProduct').addEventListener('click', openAddModal);
+document.getElementById('add-cancel').addEventListener('click', closeAddModal);
+document.getElementById('add-submit').addEventListener('click', submitAddProduct);
+document.getElementById('addModal').addEventListener('click', e => { if(e.target.id === 'addModal') closeAddModal(); });
 </script>
 </body>
 </html>
