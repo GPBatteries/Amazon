@@ -27,7 +27,7 @@
   .gateerr{color:var(--err);font-size:13px;margin-top:12px;min-height:18px}
 
   /* APP */
-  #layout{display:none;max-width:1440px;margin:0 auto}
+  #layout{display:none;max-width:1680px;margin:0 auto}
   #layout.active{display:block}
   #app{width:100%}
 
@@ -88,16 +88,16 @@
   .chevron{width:13px;height:13px;flex-shrink:0;transition:transform .15s;color:var(--muted)}
   .chevron.open{transform:rotate(90deg);color:var(--accent2)}
   tr.rowdetail td{padding:0;border-top:none}
-  .breakdowntable{width:100%;border-collapse:collapse;background:#0e1117}
+  .breakdowntable{border-collapse:collapse;table-layout:fixed;background:#0e1117}
   .breakdowntable tr{border-bottom:1px solid var(--line)}
   .breakdowntable tr:last-child{border-bottom:2px solid var(--line)}
-  .breakdowntable td{padding:9px 16px;font-size:12.5px;color:var(--muted)}
-  .bdname{color:var(--txt);font-weight:600;display:flex;align-items:center;gap:8px}
-  .bdasin{font-family:'JetBrains Mono',monospace;font-size:10.5px;color:var(--muted);font-weight:400}
+  .breakdowntable td{padding:9px 16px;font-size:12.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis}
+  .bdname{color:var(--txt);font-weight:600;padding-left:34px !important}
   .chartwrap{position:relative;height:260px}
 
   .tablewrap{overflow-x:auto}
-  table{border-collapse:collapse;width:100%;font-size:13px;white-space:nowrap}
+  table{border-collapse:collapse;table-layout:fixed;font-size:13px;white-space:nowrap}
+  th,td{box-sizing:border-box}
   th,td{padding:9px 12px;text-align:right;border-bottom:1px solid var(--line)}
   th{color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.03em;position:sticky;top:0;background:var(--card)}
   td:first-child,th:first-child{text-align:left;font-family:'JetBrains Mono',monospace}
@@ -295,20 +295,21 @@ const FIXED_CATEGORIES = ['Alkaline','Specialty','Rechargeable','Accessoires'];
 
 // Kolomdefinities voor de Periodedata-tabel -- 'Datum' zelf is altijd zichtbaar
 // en staat hier niet in, de rest kan losstaand aan/uit gezet worden.
+const DATE_COL_WIDTH = 128;
 const COLUMN_DEFS = [
-  {key:'units', label:'Sales #', render:r => num(r.units), raw:r => r.units},
-  {key:'sales', label:'Sales \u00a3', render:r => gbp(r.sales), raw:r => r.sales},
-  {key:'grossRsp', label:'RSP gross', render:r => gbp(r.grossRsp), raw:r => r.grossRsp},
-  {key:'netRsp', label:'RSP net', render:r => gbp(r.netRsp), raw:r => r.netRsp},
-  {key:'commission', label:'Comm+Ad', render:r => gbp(r.commission), raw:r => r.commission},
-  {key:'marginPct', label:'Marge %', render:r => pct(r.marginPct), cls:'pos', raw:r => r.marginPct},
-  {key:'marginAbs', label:'Marge abs', render:r => gbp(r.marginAbs), raw:r => r.marginAbs},
-  {key:'marginTot', label:'Marge Tot.', render:r => gbp(r.marginTot), raw:r => r.marginTot},
-  {key:'cvr', label:'CVR', render:r => r.cvr.toLocaleString('nl-NL',{maximumFractionDigits:1})+'%', raw:r => r.cvr},
-  {key:'adSpend', label:'Ad Spend', render:r => r.adSpend !== undefined ? gbp(r.adSpend) : '-', raw:r => r.adSpend ?? ''},
-  {key:'acos', label:'ACOS', render:r => (r.acos !== undefined && r.acos !== null) ? pct(r.acos) : '-', raw:r => r.acos ?? ''},
-  {key:'netMargin', label:'Net Margin', render:r => r.netMargin !== undefined ? gbp(r.netMargin) : '-', raw:r => r.netMargin ?? ''},
-  {key:'netMarginPct', label:'Net Margin %', render:r => (r.netMarginPct !== undefined && r.netMarginPct !== null) ? pct(r.netMarginPct) : '-', raw:r => r.netMarginPct ?? ''},
+  {key:'units', label:'Sales #', render:r => num(r.units), raw:r => r.units, w:80},
+  {key:'sales', label:'Sales \u00a3', render:r => gbp(r.sales), raw:r => r.sales, w:100},
+  {key:'grossRsp', label:'RSP gross', render:r => gbp(r.grossRsp), raw:r => r.grossRsp, w:96},
+  {key:'netRsp', label:'RSP net', render:r => gbp(r.netRsp), raw:r => r.netRsp, w:90},
+  {key:'commission', label:'Comm+Ad', render:r => gbp(r.commission), raw:r => r.commission, w:96},
+  {key:'marginPct', label:'Marge %', render:r => pct(r.marginPct), cls:'pos', raw:r => r.marginPct, w:86},
+  {key:'marginAbs', label:'Marge abs', render:r => gbp(r.marginAbs), raw:r => r.marginAbs, w:96},
+  {key:'marginTot', label:'Marge Tot.', render:r => gbp(r.marginTot), raw:r => r.marginTot, w:100},
+  {key:'cvr', label:'CVR', render:r => r.cvr.toLocaleString('nl-NL',{maximumFractionDigits:1})+'%', raw:r => r.cvr, w:76},
+  {key:'adSpend', label:'Ad Spend', render:r => r.adSpend !== undefined ? gbp(r.adSpend) : '-', raw:r => r.adSpend ?? '', w:96},
+  {key:'acos', label:'ACOS', render:r => (r.acos !== undefined && r.acos !== null) ? pct(r.acos) : '-', raw:r => r.acos ?? '', w:82},
+  {key:'netMargin', label:'Net Margin', render:r => r.netMargin !== undefined ? gbp(r.netMargin) : '-', raw:r => r.netMargin ?? '', w:106},
+  {key:'netMarginPct', label:'Net Margin %', render:r => (r.netMarginPct !== undefined && r.netMarginPct !== null) ? pct(r.netMarginPct) : '-', raw:r => r.netMarginPct ?? '', w:118},
 ];
 let VISIBLE_COLUMNS = new Set(COLUMN_DEFS.map(c => c.key)); // standaard: alles aan
 
@@ -702,26 +703,27 @@ function renderTableAndChart(rows){
 
   const visibleCols = COLUMN_DEFS.filter(c => VISIBLE_COLUMNS.has(c.key));
   document.getElementById('thead-row').innerHTML =
-    '<th>Datum</th>' + visibleCols.map(c => `<th>${c.label}</th>`).join('');
+    `<th style="width:${DATE_COL_WIDTH}px">Datum</th>` +
+    visibleCols.map(c => `<th style="width:${c.w}px">${c.label}</th>`).join('');
 
   document.getElementById('tbody').innerHTML = rows.slice().reverse().map(r => {
     const expandable = r.breakdown && r.breakdown.length > 1;
     const isOpen = EXPANDED_KEYS.has(r.date);
     const dateCell = expandable
-      ? `<td class="expandcell" onclick="toggleRowDetail('${r.date}')">
+      ? `<td class="expandcell" style="width:${DATE_COL_WIDTH}px" onclick="toggleRowDetail('${r.date}')">
            <svg class="chevron${isOpen ? ' open' : ''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
            ${r.date}
          </td>`
-      : `<td>${r.date}</td>`;
+      : `<td style="width:${DATE_COL_WIDTH}px">${r.date}</td>`;
     const mainRow = `<tr>${dateCell}${visibleCols.map(c =>
-      `<td${c.cls ? ` class="${c.cls}"` : ''}>${c.render(r)}</td>`).join('')}</tr>`;
+      `<td style="width:${c.w}px"${c.cls ? ` class="${c.cls}"` : ''}>${c.render(r)}</td>`).join('')}</tr>`;
 
     if(!expandable || !isOpen) return mainRow;
 
     const detailRows = r.breakdown.map(b => `
-      <tr><td class="bdname">${b.name}<span class="bdasin">${b.asin}</span></td>${visibleCols.map(c =>
-        `<td${c.cls ? ` class="${c.cls}"` : ''}>${c.render(b)}</td>`).join('')}</tr>`).join('');
-    const detailRow = `<tr class="rowdetail"><td colspan="${visibleCols.length + 1}">
+      <tr><td style="width:${DATE_COL_WIDTH}px" class="bdname" title="${b.name} (${b.asin})">${b.name}</td>${visibleCols.map(c =>
+        `<td style="width:${c.w}px"${c.cls ? ` class="${c.cls}"` : ''}>${c.render(b)}</td>`).join('')}</tr>`).join('');
+    const detailRow = `<tr class="rowdetail"><td colspan="${visibleCols.length + 1}" style="padding:0">
       <table class="breakdowntable"><tbody>${detailRows}</tbody></table>
     </td></tr>`;
     return mainRow + detailRow;
