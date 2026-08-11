@@ -91,7 +91,7 @@
   .breakdowntable{border-collapse:collapse;table-layout:fixed;background:#0e1117}
   .breakdowntable tr{border-bottom:1px solid var(--line)}
   .breakdowntable tr:last-child{border-bottom:2px solid var(--line)}
-  .breakdowntable td{padding:9px 16px;font-size:12.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis}
+  .breakdowntable td{padding:9px 12px;font-size:12.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis}
   .bdname{color:var(--txt);font-weight:600;padding-left:34px !important}
   .chartwrap{position:relative;height:260px}
 
@@ -707,7 +707,7 @@ function renderTableAndChart(rows){
     visibleCols.map(c => `<th style="width:${c.w}px">${c.label}</th>`).join('');
 
   document.getElementById('tbody').innerHTML = rows.slice().reverse().map(r => {
-    const expandable = r.breakdown && r.breakdown.length > 1;
+    const expandable = r.breakdown && r.breakdown.length >= 1;
     const isOpen = EXPANDED_KEYS.has(r.date);
     const dateCell = expandable
       ? `<td class="expandcell" style="width:${DATE_COL_WIDTH}px" onclick="toggleRowDetail('${r.date}')">
