@@ -323,6 +323,16 @@ function isoWeekStart(dateStr){
 }
 function monthStart(dateStr){ return dateStr.slice(0,7); }
 
+function isoWeekLabel(dateStr){
+  const d = new Date(dateStr + 'T00:00:00Z');
+  // Verschuif naar de donderdag van deze week -- ISO 8601-regel: het weeknummer
+  // is het weeknummer van de donderdag, zodat de jaargrens correct valt.
+  d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+  return `Week ${String(weekNo).padStart(2,'0')} \u00b7 ${d.getUTCFullYear()}`;
+}
+
 function aggregate(rows, period){
   const keyFn = period === 'day' ? (d => d) : period === 'week' ? isoWeekStart : monthStart;
   const groups = {};
@@ -382,7 +392,8 @@ function aggregate(rows, period){
   }
 
   return Object.values(groups).sort((a,b) => a.date < b.date ? -1 : 1).map(g => {
-    const row = {date: g.date, ...finalizeMetrics(g)};
+    const label = period === 'week' ? isoWeekLabel(g.date) : g.date;
+    const row = {date: label, sortKey: g.date, ...finalizeMetrics(g)};
     row.breakdown = Object.values(g.byAsin)
       .map(b => ({asin: b.asin, name: productName(b.asin), ...finalizeMetrics(b)}))
       .sort((a,b) => b.sales - a.sales);
