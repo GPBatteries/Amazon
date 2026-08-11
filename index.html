@@ -82,6 +82,18 @@
   .periodrow{display:flex;gap:24px;align-items:flex-start}
   .periodbox{flex:1;min-width:0}
   #exportbtn{margin-right:2px}
+
+  .expandcell{cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px}
+  .expandcell:hover{color:var(--accent2)}
+  .chevron{width:13px;height:13px;flex-shrink:0;transition:transform .15s;color:var(--muted)}
+  .chevron.open{transform:rotate(90deg);color:var(--accent2)}
+  tr.rowdetail td{padding:0;border-top:none}
+  .breakdowntable{width:100%;border-collapse:collapse;background:#0e1117}
+  .breakdowntable tr{border-bottom:1px solid var(--line)}
+  .breakdowntable tr:last-child{border-bottom:2px solid var(--line)}
+  .breakdowntable td{padding:9px 16px;font-size:12.5px;color:var(--muted)}
+  .bdname{color:var(--txt);font-weight:600;display:flex;align-items:center;gap:8px}
+  .bdasin{font-family:'JetBrains Mono',monospace;font-size:10.5px;color:var(--muted);font-weight:400}
   .chartwrap{position:relative;height:260px}
 
   .tablewrap{overflow-x:auto}
@@ -319,7 +331,7 @@ function aggregate(rows, period){
   rows.forEach(r => {
     const k = keyFn(r.date);
     if(!groups[k]) groups[k] = {date:k, units:0, sales:0, commission:0, marginTot:0, cvrSum:0, cvrCount:0,
-      adSpend:0, adSales14d:0, adClicks:0, adOrders14d:0, hasAds:false};
+      adSpend:0, adSales14d:0, adClicks:0, adOrders14d:0, hasAds:false, byAsin:{}};
     const g = groups[k];
     g.units += r.units;
     g.sales += r.sales;
@@ -333,13 +345,24 @@ function aggregate(rows, period){
       g.adClicks += (r.adClicks || 0);
       g.adOrders14d += (r.adOrders14d || 0);
     }
+    // Per-ASIN subtotaal binnen deze periode-groep, voor de detail-uitklap.
+    const asin = r.asin;
+    if(!g.byAsin[asin]) g.byAsin[asin] = {asin, units:0, sales:0, commission:0, marginTot:0,
+      cvrSum:0, cvrCount:0, adSpend:0, adSales14d:0, adClicks:0, adOrders14d:0, hasAds:false};
+    const b = g.byAsin[asin];
+    b.units += r.units; b.sales += r.sales; b.commission += r.commission; b.marginTot += r.marginTot;
+    b.cvrSum += r.cvr; b.cvrCount++;
+    if(r.adSpend !== undefined){
+      b.hasAds = true;
+      b.adSpend += r.adSpend; b.adSales14d += (r.adSales14d || 0);
+      b.adClicks += (r.adClicks || 0); b.adOrders14d += (r.adOrders14d || 0);
+    }
   });
-  return Object.values(groups).sort((a,b) => a.date < b.date ? -1 : 1).map(g => {
+
+  function finalizeMetrics(g){
     const net = g.sales / (1 + VAT);
-    const row = {
-      date: g.date,
-      units: g.units,
-      sales: g.sales,
+    const out = {
+      units: g.units, sales: g.sales,
       grossRsp: g.units ? g.sales / g.units : 0,
       netRsp: g.units ? net / g.units : 0,
       commission: g.commission,
@@ -349,16 +372,29 @@ function aggregate(rows, period){
       cvr: g.cvrCount ? g.cvrSum / g.cvrCount : 0,
     };
     if(g.hasAds){
-      row.adSpend = g.adSpend;
-      row.adSales14d = g.adSales14d;
-      row.adClicks = g.adClicks;
-      row.adOrders14d = g.adOrders14d;
-      row.acos = g.adSales14d ? g.adSpend / g.adSales14d : null;
-      row.netMargin = g.marginTot - g.adSpend;
-      row.netMarginPct = net ? row.netMargin / net : null;
+      out.adSpend = g.adSpend;
+      out.adSales14d = g.adSales14d;
+      out.adClicks = g.adClicks;
+      out.adOrders14d = g.adOrders14d;
+      out.acos = g.adSales14d ? g.adSpend / g.adSales14d : null;
+      out.netMargin = g.marginTot - g.adSpend;
+      out.netMarginPct = net ? out.netMargin / net : null;
     }
+    return out;
+  }
+
+  return Object.values(groups).sort((a,b) => a.date < b.date ? -1 : 1).map(g => {
+    const row = {date: g.date, ...finalizeMetrics(g)};
+    row.breakdown = Object.values(g.byAsin)
+      .map(b => ({asin: b.asin, name: productName(b.asin), ...finalizeMetrics(b)}))
+      .sort((a,b) => b.sales - a.sales);
     return row;
   });
+}
+
+function productName(asin){
+  const p = PRODUCTS.find(p => p.asin === asin);
+  return p ? p.name : asin;
 }
 
 function setPeriod(p){
@@ -651,6 +687,13 @@ function updateDownloadMeta(){
 }
 
 let LAST_RENDERED_ROWS = [];
+let EXPANDED_KEYS = new Set(); // welke periode-rijen momenteel uitgeklapt staan (per-ASIN detail)
+
+function toggleRowDetail(key){
+  if(EXPANDED_KEYS.has(key)) EXPANDED_KEYS.delete(key);
+  else EXPANDED_KEYS.add(key);
+  renderTableAndChart(LAST_RENDERED_ROWS); // her-renderen met dezelfde data, geen nieuwe filter/aggregatie nodig
+}
 
 function renderTableAndChart(rows){
   LAST_RENDERED_ROWS = rows;
@@ -661,9 +704,28 @@ function renderTableAndChart(rows){
   document.getElementById('thead-row').innerHTML =
     '<th>Datum</th>' + visibleCols.map(c => `<th>${c.label}</th>`).join('');
 
-  document.getElementById('tbody').innerHTML = rows.slice().reverse().map(r => `
-    <tr><td>${r.date}</td>${visibleCols.map(c =>
-      `<td${c.cls ? ` class="${c.cls}"` : ''}>${c.render(r)}</td>`).join('')}</tr>`).join('');
+  document.getElementById('tbody').innerHTML = rows.slice().reverse().map(r => {
+    const expandable = r.breakdown && r.breakdown.length > 1;
+    const isOpen = EXPANDED_KEYS.has(r.date);
+    const dateCell = expandable
+      ? `<td class="expandcell" onclick="toggleRowDetail('${r.date}')">
+           <svg class="chevron${isOpen ? ' open' : ''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+           ${r.date}
+         </td>`
+      : `<td>${r.date}</td>`;
+    const mainRow = `<tr>${dateCell}${visibleCols.map(c =>
+      `<td${c.cls ? ` class="${c.cls}"` : ''}>${c.render(r)}</td>`).join('')}</tr>`;
+
+    if(!expandable || !isOpen) return mainRow;
+
+    const detailRows = r.breakdown.map(b => `
+      <tr><td class="bdname">${b.name}<span class="bdasin">${b.asin}</span></td>${visibleCols.map(c =>
+        `<td${c.cls ? ` class="${c.cls}"` : ''}>${c.render(b)}</td>`).join('')}</tr>`).join('');
+    const detailRow = `<tr class="rowdetail"><td colspan="${visibleCols.length + 1}">
+      <table class="breakdowntable"><tbody>${detailRows}</tbody></table>
+    </td></tr>`;
+    return mainRow + detailRow;
+  }).join('');
 
   if(window.Chart){
     if(chartInstance) chartInstance.destroy();
