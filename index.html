@@ -87,12 +87,9 @@
   .expandcell:hover{color:var(--accent2)}
   .chevron{width:13px;height:13px;flex-shrink:0;transition:transform .15s;color:var(--muted)}
   .chevron.open{transform:rotate(90deg);color:var(--accent2)}
-  tr.rowdetail td{padding:0;border-top:none}
-  .breakdowntable{border-collapse:collapse;table-layout:fixed;background:#0e1117}
-  .breakdowntable tr{border-bottom:1px solid var(--line)}
-  .breakdowntable tr:last-child{border-bottom:2px solid var(--line)}
-  .breakdowntable td{padding:9px 12px;font-size:12.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis}
-  .bdname{color:var(--txt);font-weight:600;padding-left:34px !important}
+  tr.rowdetail{background:#0e1117}
+  tr.rowdetail td{font-size:12.5px;color:var(--muted)}
+  .bdname{color:var(--txt);font-weight:600;padding-left:34px !important;overflow:hidden;text-overflow:ellipsis}
   .chartwrap{position:relative;height:260px}
 
   .tablewrap{overflow-x:auto}
@@ -721,12 +718,9 @@ function renderTableAndChart(rows){
     if(!expandable || !isOpen) return mainRow;
 
     const detailRows = r.breakdown.map(b => `
-      <tr><td style="width:${DATE_COL_WIDTH}px" class="bdname" title="${b.name} (${b.asin})">${b.name}</td>${visibleCols.map(c =>
+      <tr class="rowdetail"><td style="width:${DATE_COL_WIDTH}px" class="bdname" title="${b.name} (${b.asin})">${b.name}</td>${visibleCols.map(c =>
         `<td style="width:${c.w}px"${c.cls ? ` class="${c.cls}"` : ''}>${c.render(b)}</td>`).join('')}</tr>`).join('');
-    const detailRow = `<tr class="rowdetail"><td colspan="${visibleCols.length + 1}" style="padding:0">
-      <table class="breakdowntable"><tbody>${detailRows}</tbody></table>
-    </td></tr>`;
-    return mainRow + detailRow;
+    return mainRow + detailRows;
   }).join('');
 
   if(window.Chart){
