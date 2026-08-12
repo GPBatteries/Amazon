@@ -46,6 +46,22 @@
   .prodlist .chkrow{font-size:12.5px;color:var(--muted)}
   .prodlist .chkrow .asincode{font-family:'JetBrains Mono',monospace;color:var(--muted);font-size:11px}
   .sidebarhint{font-size:11px;color:var(--muted);line-height:1.4;margin-top:4px}
+
+  .insight{display:flex;gap:14px;padding:16px;border-radius:11px;border:1px solid var(--line);background:var(--bg);margin-bottom:10px}
+  .insight:last-child{margin-bottom:0}
+  .insight .icn{width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  .insight .icn svg{width:18px;height:18px}
+  .insight.good .icn{background:rgba(63,185,80,.15);color:#3fb950}
+  .insight.bad .icn{background:rgba(248,81,73,.15);color:#f85149}
+  .insight.warn .icn{background:rgba(210,153,34,.15);color:#d29922}
+  .insight.info .icn{background:rgba(88,166,255,.15);color:var(--accent2)}
+  .insight .body h4{font-size:14px;font-weight:700;margin-bottom:4px}
+  .insight.good .body h4{color:#3fb950}
+  .insight.bad .body h4{color:#f85149}
+  .insight.warn .body h4{color:#d29922}
+  .insight.info .body h4{color:var(--accent2)}
+  .insight .body p{font-size:13px;color:var(--muted);line-height:1.5}
+  .insight-empty{color:var(--muted);font-size:13px;padding:30px;text-align:center}
   @media(max-width:900px){.periodrow{flex-direction:column}.sidebar{width:100%;position:static}}
   header{display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px;margin-bottom:20px}
   .ttl .tag{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
@@ -173,6 +189,7 @@
   <div class="tabsrow">
     <div class="tabs">
       <button id="tab-dash" class="active" onclick="show('dash')">Dashboard</button>
+      <button id="tab-insights" onclick="show('insights')">Inzichten</button>
       <button id="tab-dl" onclick="show('dl')">Download</button>
     </div>
     <button class="addbtn" id="openAddProduct" title="Product toevoegen">+</button>
@@ -232,6 +249,17 @@
           <tbody id="tbody"></tbody>
         </table></div>
       </div>
+    </div>
+  </div>
+
+  <div id="panel-insights" class="panel">
+    <div class="box">
+      <h2>Automatische inzichten <span class="rc" id="insights-scope"></span></h2>
+      <div class="sidebarhint" style="margin-bottom:16px">
+        Gebaseerd op de huidige product-/categoriefilter en het datumbereik, altijd berekend op dagniveau
+        (los van de Dag/Week/Maand-weergave in het dashboard).
+      </div>
+      <div id="insights-list"></div>
     </div>
   </div>
 
@@ -406,6 +434,175 @@ function productName(asin){
   return p ? p.name : asin;
 }
 
+function sumBy(rows, key){ return rows.reduce((s,r) => s + (r[key] || 0), 0); }
+
+function weightedMarginPct(rows){
+  const netTotal = sumBy(rows, 'sales') / (1 + VAT);
+  return netTotal ? sumBy(rows, 'marginTot') / netTotal : null;
+}
+function weightedAcos(rows){
+  const spend = sumBy(rows, 'adSpend'), sales14d = sumBy(rows, 'adSales14d');
+  return sales14d ? spend / sales14d : null;
+}
+function pctChange(oldVal, newVal){ return oldVal ? (newVal - oldVal) / oldVal : null; }
+
+function sumByAsin(dayRows){
+  const byAsin = {};
+  dayRows.forEach(r => (r.breakdown || []).forEach(b => {
+    if(!byAsin[b.asin]) byAsin[b.asin] = {asin:b.asin, name:b.name, sales:0, marginTot:0, adSpend:0, adSales14d:0};
+    const t = byAsin[b.asin];
+    t.sales += b.sales; t.marginTot += b.marginTot;
+    t.adSpend += (b.adSpend || 0); t.adSales14d += (b.adSales14d || 0);
+  }));
+  return Object.values(byAsin);
+}
+
+function computeInsights(dayRows){
+  const insights = [];
+  if(dayRows.length < 4){
+    insights.push({type:'info', title:'Te weinig data voor trends',
+      text:'Selecteer een langere periode (minimaal een paar dagen) om betrouwbare trends en afwijkingen te kunnen berekenen.'});
+    return insights;
+  }
+
+  const n = Math.max(1, Math.min(7, Math.floor(dayRows.length / 2)));
+  const recent = dayRows.slice(-n);
+  const prior = dayRows.slice(-2 * n, -n);
+  const periodLabel = n === 1 ? 'de laatste dag' : `de laatste ${n} dagen`;
+  const priorLabel = n === 1 ? 'de dag daarvoor' : `de ${n} dagen daarvoor`;
+
+  const recentSales = sumBy(recent, 'sales'), priorSales = sumBy(prior, 'sales');
+  if(prior.length){
+    const change = pctChange(priorSales, recentSales);
+    if(change !== null && Math.abs(change) >= 0.10){
+      insights.push({
+        type: change > 0 ? 'good' : 'bad',
+        title: change > 0 ? 'Sales in stijgende lijn' : 'Sales dalen',
+        text: `Sales over ${periodLabel} (${gbp(recentSales)}) ${change > 0 ? 'stegen' : 'daalden'} met ` +
+              `${Math.abs(change * 100).toFixed(0)}% t.o.v. ${priorLabel} (${gbp(priorSales)}).`
+      });
+    }
+  }
+
+  const recentMarginPct = weightedMarginPct(recent), priorMarginPct = weightedMarginPct(prior);
+  if(recentMarginPct !== null && priorMarginPct !== null){
+    const diffPts = (recentMarginPct - priorMarginPct) * 100;
+    if(Math.abs(diffPts) >= 2){
+      insights.push({
+        type: diffPts > 0 ? 'good' : 'bad',
+        title: diffPts > 0 ? 'Marge verbetert' : 'Marge onder druk',
+        text: `Gewogen marge% over ${periodLabel} is ${pct(recentMarginPct)}, ` +
+              `${diffPts > 0 ? 'een verbetering' : 'een daling'} van ${Math.abs(diffPts).toFixed(1)} procentpunt t.o.v. ${priorLabel} (${pct(priorMarginPct)}).`
+      });
+    }
+  }
+  if(recentMarginPct !== null){
+    if(recentMarginPct < 0.20){
+      insights.push({type:'bad', title:'Lage marge',
+        text:`De gewogen marge% over ${periodLabel} is ${pct(recentMarginPct)} -- onder de 20%. Controleer commissie, FBA-kosten en COGS-aannames.`});
+    }else if(recentMarginPct > 0.35){
+      insights.push({type:'good', title:'Gezonde marge',
+        text:`De gewogen marge% over ${periodLabel} is ${pct(recentMarginPct)} -- ruim boven de 35%.`});
+    }
+  }
+
+  const recentAcos = weightedAcos(recent), priorAcos = weightedAcos(prior);
+  if(recentAcos !== null && priorAcos !== null){
+    const diffPts = (recentAcos - priorAcos) * 100;
+    if(Math.abs(diffPts) >= 5){
+      insights.push({
+        type: diffPts > 0 ? 'warn' : 'good',
+        title: diffPts > 0 ? 'ACOS stijgt' : 'ACOS verbetert',
+        text: `Gewogen ACOS over ${periodLabel} is ${pct(recentAcos)}, ` +
+              `${diffPts > 0 ? 'een stijging' : 'een verbetering'} van ${Math.abs(diffPts).toFixed(1)} procentpunt t.o.v. ${priorLabel} (${pct(priorAcos)}).`
+      });
+    }
+  }
+  if(recentAcos !== null && recentAcos > 0.50){
+    insights.push({type:'warn', title:'Hoge ACOS',
+      text:`De gewogen ACOS over ${periodLabel} is ${pct(recentAcos)} -- meer dan 50% van de advertentie-omzet gaat op aan advertentiekosten.`});
+  }
+
+  const negDays = recent.filter(r => r.netMargin !== undefined && r.netMargin < 0);
+  if(negDays.length){
+    insights.push({type:'bad', title:'Negatieve netto marge op sommige dagen',
+      text:`Op ${negDays.length} van ${periodLabel.replace('de laatste ','')} was de advertentiespend hoger dan de marge die dag -- netto verlies op die dag, ondanks positieve marge zonder ads.`});
+  }
+
+  const wastedDays = recent.filter(r => (r.adSpend || 0) > 5 && r.units === 0);
+  if(wastedDays.length){
+    const wastedTotal = sumBy(wastedDays, 'adSpend');
+    insights.push({type:'warn', title:'Advertentiespend zonder verkopen',
+      text:`Op ${wastedDays.length} dag(en) binnen ${periodLabel} was er advertentiespend (samen ${gbp(wastedTotal)}) zonder dat er units verkocht werden.`});
+  }
+
+  const perAsin = sumByAsin(recent).filter(a => a.sales > 0);
+  if(perAsin.length > 1){
+    const withMargin = perAsin.map(a => ({...a, marginPct: (a.sales/(1+VAT)) ? a.marginTot/(a.sales/(1+VAT)) : null}))
+      .filter(a => a.marginPct !== null);
+    if(withMargin.length > 1){
+      const best = withMargin.reduce((a,b) => a.marginPct > b.marginPct ? a : b);
+      const worst = withMargin.reduce((a,b) => a.marginPct < b.marginPct ? a : b);
+      if(best.asin !== worst.asin && (best.marginPct - worst.marginPct) >= 0.05){
+        insights.push({type:'info', title:'Verschil in marge tussen producten',
+          text:`${best.name} heeft de beste marge (${pct(best.marginPct)}) over ${periodLabel}, ` +
+                `${worst.name} de laagste (${pct(worst.marginPct)}).`});
+      }
+    }
+    const withAcos = perAsin.map(a => ({...a, acos: a.adSales14d ? a.adSpend/a.adSales14d : null})).filter(a => a.acos !== null);
+    if(withAcos.length > 1){
+      const worstAcos = withAcos.reduce((a,b) => a.acos > b.acos ? a : b);
+      if(worstAcos.acos > 0.5){
+        insights.push({type:'warn', title:'Minst effici\u00ebnte advertentiecampagne',
+          text:`${worstAcos.name} heeft de hoogste ACOS (${pct(worstAcos.acos)}) van de geselecteerde producten over ${periodLabel}.`});
+      }
+    }
+  }
+
+  const recentCvr = recent.reduce((s,r)=>s+r.cvr,0) / recent.length;
+  if(prior.length){
+    const priorCvr = prior.reduce((s,r)=>s+r.cvr,0) / prior.length;
+    const diff = recentCvr - priorCvr;
+    if(priorCvr > 0 && Math.abs(diff) >= 10){
+      insights.push({
+        type: diff > 0 ? 'good' : 'warn',
+        title: diff > 0 ? 'Conversieratio (CVR) stijgt' : 'Conversieratio (CVR) daalt',
+        text: `Gemiddelde CVR over ${periodLabel} is ${recentCvr.toFixed(1)}%, ` +
+              `${diff > 0 ? 'een stijging' : 'een daling'} van ${Math.abs(diff).toFixed(1)} procentpunt t.o.v. ${priorLabel} (${priorCvr.toFixed(1)}%).`
+      });
+    }
+  }
+
+  if(!insights.length){
+    insights.push({type:'info', title:'Geen bijzonderheden',
+      text:'Geen van de gecontroleerde signalen wijkt significant af -- de cijfers over de geselecteerde periode zijn stabiel.'});
+  }
+
+  const order = {bad:0, warn:1, good:2, info:3};
+  return insights.sort((a,b) => order[a.type] - order[b.type]);
+}
+
+const INSIGHT_ICONS = {
+  good: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>',
+  bad: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 17 13.5 8.5 8.5 13.5 2 7"/><polyline points="16 17 22 17 22 11"/></svg>',
+  warn: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+  info: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>',
+};
+
+function renderInsights(insights){
+  const el = document.getElementById('insights-list');
+  if(!el) return;
+  if(!insights.length){
+    el.innerHTML = '<div class="insight-empty">Geen data om te analyseren.</div>';
+    return;
+  }
+  el.innerHTML = insights.map(i => `
+    <div class="insight ${i.type}">
+      <div class="icn">${INSIGHT_ICONS[i.type]}</div>
+      <div class="body"><h4>${i.title}</h4><p>${i.text}</p></div>
+    </div>`).join('');
+}
+
 function setPeriod(p){
   PERIOD = p;
   ['day','week','month'].forEach(x => document.getElementById('per-'+x).classList.toggle('active', x===p));
@@ -419,6 +616,14 @@ function refreshView(){
     SELECTED_ASINS.has(r.asin) && (!from || r.date >= from) && (!to || r.date <= to));
   const rows = aggregate(filtered, PERIOD);
   renderTableAndChart(rows);
+
+  // Inzichten rekenen we altijd op dagniveau uit, onafhankelijk van de
+  // gekozen Dag/Week/Maand-weergave in de tabel -- trends/afwijkingen zijn
+  // op dagbasis het meest betekenisvol.
+  const dayRows = PERIOD === 'day' ? rows : aggregate(filtered, 'day');
+  renderInsights(computeInsights(dayRows));
+  const scopeEl = document.getElementById('insights-scope');
+  if(scopeEl) scopeEl.textContent = `(${SELECTED_ASINS.size} product${SELECTED_ASINS.size===1?'':'en'}, ${dayRows.length} dagen)`;
 }
 
 
@@ -499,8 +704,10 @@ async function unlock(){
 
 function show(t){
   document.getElementById('panel-dash').classList.toggle('active', t==='dash');
+  document.getElementById('panel-insights').classList.toggle('active', t==='insights');
   document.getElementById('panel-dl').classList.toggle('active', t==='dl');
   document.getElementById('tab-dash').classList.toggle('active', t==='dash');
+  document.getElementById('tab-insights').classList.toggle('active', t==='insights');
   document.getElementById('tab-dl').classList.toggle('active', t==='dl');
 }
 
