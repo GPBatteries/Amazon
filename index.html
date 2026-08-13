@@ -289,12 +289,12 @@
           <option value="Accessoires">Accessoires</option>
         </select>
       </div>
-      <div class="tablewrap"><table style="table-layout:auto">
+      <div class="tablewrap"><table style="table-layout:auto;width:100%">
         <thead><tr>
           <th style="width:30px"></th>
-          <th style="width:auto;text-align:left">Naam</th>
-          <th style="width:auto;text-align:left">ASIN</th>
-          <th style="width:auto;text-align:left">Categorie</th>
+          <th style="text-align:left;min-width:280px">Naam</th>
+          <th style="width:110px;text-align:left">ASIN</th>
+          <th style="width:110px;text-align:left">Categorie</th>
           <th style="width:120px">FBA (&pound;)</th>
           <th style="width:120px">COGS (&pound;)</th>
           <th style="width:120px">Commissie (%)</th>
@@ -1207,7 +1207,7 @@ function renderSettingsTable(){
           <svg class="chevron${isOpen ? ' open' : ''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
         </td>
         <td style="text-align:left"><input type="text" class="set-name" value="${p.name.replace(/"/g,'&quot;')}"
-          style="width:100%;background:none;border:1px solid transparent;border-radius:6px;padding:5px 7px;color:var(--txt);font-family:inherit;font-size:13px"
+          style="width:100%;min-width:260px;background:none;border:1px solid transparent;border-radius:6px;padding:5px 7px;color:var(--txt);font-family:inherit;font-size:13px"
           onfocus="this.style.borderColor='var(--line)'" onblur="this.style.borderColor='transparent'"></td>
         <td style="text-align:left;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--muted)">${p.asin}</td>
         <td style="text-align:left;color:var(--muted)">${p.category}</td>
