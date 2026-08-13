@@ -44,6 +44,30 @@ def load_products() -> list[dict]:
         raise SystemExit(f"Geen producten gevonden in {PRODUCTS_FILE}.")
     return products
 
+
+def resolve_costs(product: dict, date_str: str) -> tuple[float, float, float]:
+    """
+    Bepaalt welke fba/cogs/commissionPct gelden voor een specifieke datum,
+    in deze volgorde van specificiteit:
+      1. costHistory-item met de meest recente effectiveFrom <= date_str
+         (dus: "de laatste wijziging die op deze datum al was ingegaan").
+      2. De vlakke fba/cogs/commissionPct op het product zelf (geen datum
+         gekoppeld -- de "gewone" instelling via het snelle formulier).
+      3. De globale fallback-defaults (FBA_DEFAULT/COGS_DEFAULT/COMMISSION_ADFEE_PCT_DEFAULT).
+
+    Elk veld (fba/cogs/commissionPct) wordt AFZONDERLIJK opgelost -- een
+    costHistory-item dat bv. alleen fba wijzigt, laat cogs/commissionPct via
+    de lagere niveaus oplossen (dus je hoeft niet steeds alle 3 mee te geven).
+    """
+    history = sorted(product.get("costHistory", []), key=lambda h: h["effectiveFrom"])
+    applicable = [h for h in history if h["effectiveFrom"] <= date_str]
+    latest = applicable[-1] if applicable else {}
+
+    fba = latest.get("fba", product.get("fba", FBA_DEFAULT))
+    cogs = latest.get("cogs", product.get("cogs", COGS_DEFAULT))
+    commission_pct = latest.get("commissionPct", product.get("commissionPct", COMMISSION_ADFEE_PCT_DEFAULT))
+    return float(fba), float(cogs), float(commission_pct)
+
 # ----------------------------------------------------------------------------
 # Data inlezen
 # ----------------------------------------------------------------------------
@@ -245,10 +269,13 @@ def load_ads_spend() -> dict:
     return {(str(r["date"]), r["childAsin"]): r for _, r in ads_df.iterrows()}
 
 
-def compute_rows(df: pd.DataFrame, ads_spend: dict, asin: str, fba: float, cogs: float, commission_pct: float):
+def compute_rows(df: pd.DataFrame, ads_spend: dict, asin: str, product: dict):
     ads_spend = ads_spend or {}
     rows = []
     for _, r in df.iterrows():
+        date_str = str(r["date"])
+        fba, cogs, commission_pct = resolve_costs(product, date_str)
+
         units = float(r["unitsOrdered"])
         sales = float(r["orderedProductSales"])
         gross = sales / units if units else 0.0
@@ -258,7 +285,7 @@ def compute_rows(df: pd.DataFrame, ads_spend: dict, asin: str, fba: float, cogs:
         margin_pct = (margin_abs / net) if net else 0.0
 
         row = {
-            "date": str(r["date"]),
+            "date": date_str,
             "asin": asin,
             "units": units,
             "sales": sales,
@@ -276,7 +303,7 @@ def compute_rows(df: pd.DataFrame, ads_spend: dict, asin: str, fba: float, cogs:
         # Ads-spend is optioneel en komt uit een losse databron (Ads API,
         # via fetch_ads_spend.py) -- alleen invullen als deze (datum, asin)
         # combinatie bekend is.
-        ads_row = ads_spend.get((str(r["date"]), asin))
+        ads_row = ads_spend.get((date_str, asin))
         if ads_row is not None:
             ad_spend = float(ads_row["adSpend"])
             ad_sales14d = float(ads_row["adSales14d"])
@@ -315,12 +342,6 @@ def main():
     products_meta = []
     for p in products:
         asin, name, category = p["asin"], p.get("name", p["asin"]), p.get("category", "Overig")
-        # Per-product kostenaannames -- optioneel per ASIN instelbaar (via het
-        # dashboard, zie index.html + de Cloudflare Worker). Ontbreekt een
-        # veld voor dit product, dan geldt de globale fallback-waarde.
-        fba = float(p.get("fba", FBA_DEFAULT))
-        cogs = float(p.get("cogs", COGS_DEFAULT))
-        commission_pct = float(p.get("commissionPct", COMMISSION_ADFEE_PCT_DEFAULT))
 
         pdf = full_df[full_df["childAsin"] == asin].reset_index(drop=True)
         if pdf.empty:
@@ -328,8 +349,16 @@ def main():
                   f"Wordt overgeslagen in data.json totdat er data is.")
             continue
 
+        # Voor de Excel-"Aannames"-tabel tonen we de kosten die gelden op de
+        # LAATSTE (meest recente) datum -- de dag-op-dag-berekening zelf
+        # (compute_rows) lost per rij de juiste, op dat moment geldende
+        # kosten op, dus die klopt ook als er tussentijds een costHistory-
+        # wijziging is geweest.
+        last_date_str = str(max(pdf["date"]))
+        fba, cogs, commission_pct = resolve_costs(p, last_date_str)
+
         n, output_path = build(pdf, asin, fba, cogs, commission_pct)
-        rows = compute_rows(pdf, ads_spend_all, asin, fba, cogs, commission_pct)
+        rows = compute_rows(pdf, ads_spend_all, asin, p)
         all_rows.extend(rows)
         products_meta.append({
             "asin": asin,

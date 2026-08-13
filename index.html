@@ -291,6 +291,7 @@
       </div>
       <div class="tablewrap"><table style="table-layout:auto">
         <thead><tr>
+          <th style="width:30px"></th>
           <th style="width:auto;text-align:left">Naam</th>
           <th style="width:auto;text-align:left">ASIN</th>
           <th style="width:auto;text-align:left">Categorie</th>
@@ -377,6 +378,7 @@ let chartInstance = null;
 let PRODUCTS = [];        // uit products.json: [{asin,name,category,fba?,cogs?,commissionPct?}]
 let SELECTED_ASINS = new Set();
 let ASSUMPTION_DEFAULTS = {}; // fallback-waarden (fba/cogs/commissionPct) voor producten zonder eigen instelling
+let EXPANDED_SETTINGS = new Set(); // welke producten hun kostenhistorie openstaan in de Instellingen-tab
 const FIXED_CATEGORIES = ['Alkaline','Specialty','Rechargeable','Accessoires'];
 
 // Kolomdefinities voor de Periodedata-tabel -- 'Datum' zelf is altijd zichtbaar
@@ -1196,8 +1198,14 @@ function renderSettingsTable(){
     const commission = p.commissionPct !== undefined
       ? (p.commissionPct * 100).toFixed(1)
       : (ASSUMPTION_DEFAULTS.commissionPct !== undefined ? (ASSUMPTION_DEFAULTS.commissionPct * 100).toFixed(1) : '');
-    return `
+    const isOpen = EXPANDED_SETTINGS.has(p.asin);
+    const historyCount = (p.costHistory || []).length;
+
+    const mainRow = `
       <tr data-asin="${p.asin}">
+        <td class="expandcell" style="width:30px" onclick="toggleSettingsHistory('${p.asin}')" title="Kostenhistorie per ingangsdatum">
+          <svg class="chevron${isOpen ? ' open' : ''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+        </td>
         <td style="text-align:left"><input type="text" class="set-name" value="${p.name.replace(/"/g,'&quot;')}"
           style="width:100%;background:none;border:1px solid transparent;border-radius:6px;padding:5px 7px;color:var(--txt);font-family:inherit;font-size:13px"
           onfocus="this.style.borderColor='var(--line)'" onblur="this.style.borderColor='transparent'"></td>
@@ -1211,8 +1219,114 @@ function renderSettingsTable(){
           style="width:90px;background:none;border:1px solid var(--line);border-radius:6px;padding:5px 7px;color:var(--txt);font-family:inherit;font-size:13px;text-align:right"></td>
         <td><button class="btn-primary" style="padding:7px 14px;font-size:12.5px" onclick="saveSettingsRow('${p.asin}', this)">Opslaan</button></td>
       </tr>
-      <tr class="set-errrow" data-asin-err="${p.asin}"><td colspan="7" style="border-top:none;padding-top:0"></td></tr>`;
+      <tr class="set-errrow" data-asin-err="${p.asin}"><td colspan="8" style="border-top:none;padding-top:0"></td></tr>`;
+
+    if(!isOpen) return mainRow;
+
+    const historyRowsHtml = (p.costHistory || []).slice().sort((a,b) => a.effectiveFrom < b.effectiveFrom ? -1 : 1).map(h => `
+      <tr class="rowdetail">
+        <td></td>
+        <td colspan="2" class="bdname">Vanaf ${h.effectiveFrom}</td>
+        <td></td>
+        <td>${h.fba !== undefined ? gbp(h.fba) : '<span style="color:var(--muted)">-</span>'}</td>
+        <td>${h.cogs !== undefined ? gbp(h.cogs) : '<span style="color:var(--muted)">-</span>'}</td>
+        <td>${h.commissionPct !== undefined ? pct(h.commissionPct) : '<span style="color:var(--muted)">-</span>'}</td>
+        <td><button class="btn-secondary" style="padding:5px 10px;font-size:11.5px" onclick="deleteCostPeriod('${p.asin}','${h.effectiveFrom}', this)">Verwijderen</button></td>
+      </tr>`).join('');
+
+    const newPeriodRow = `
+      <tr class="rowdetail">
+        <td></td>
+        <td colspan="2">
+          <input type="date" class="cp-date-${p.asin}" style="background:var(--card);border:1px solid var(--line);border-radius:6px;padding:5px 8px;color:var(--txt);font-family:inherit;font-size:12.5px">
+        </td>
+        <td></td>
+        <td><input type="number" step="0.01" min="0" placeholder="fba" class="cp-fba-${p.asin}"
+          style="width:80px;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:5px 7px;color:var(--txt);font-family:inherit;font-size:12.5px;text-align:right"></td>
+        <td><input type="number" step="0.01" min="0" placeholder="cogs" class="cp-cogs-${p.asin}"
+          style="width:80px;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:5px 7px;color:var(--txt);font-family:inherit;font-size:12.5px;text-align:right"></td>
+        <td><input type="number" step="0.1" min="0" max="100" placeholder="%" class="cp-comm-${p.asin}"
+          style="width:80px;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:5px 7px;color:var(--txt);font-family:inherit;font-size:12.5px;text-align:right"></td>
+        <td><button class="btn-primary" style="padding:5px 10px;font-size:11.5px" onclick="addCostPeriod('${p.asin}', this)">+ Toevoegen</button></td>
+      </tr>
+      <tr class="rowdetail" data-cp-err="${p.asin}"><td colspan="8" style="font-size:11.5px"></td></tr>`;
+
+    const emptyHint = historyCount === 0
+      ? `<tr class="rowdetail"><td></td><td colspan="7" style="color:var(--muted);font-size:12px">Nog geen gedateerde kostenwijzigingen -- de bovenstaande FBA/COGS/Commissie gelden dan voor de hele periode.</td></tr>`
+      : '';
+
+    return mainRow + emptyHint + historyRowsHtml + newPeriodRow;
   }).join('');
+}
+
+function toggleSettingsHistory(asin){
+  if(EXPANDED_SETTINGS.has(asin)) EXPANDED_SETTINGS.delete(asin);
+  else EXPANDED_SETTINGS.add(asin);
+  renderSettingsTable();
+}
+
+async function addCostPeriod(asin, btn){
+  const errCell = document.querySelector(`tr[data-cp-err="${asin}"] td`);
+  const dateVal = document.querySelector(`.cp-date-${asin}`).value;
+  const fbaVal = document.querySelector(`.cp-fba-${asin}`).value.trim();
+  const cogsVal = document.querySelector(`.cp-cogs-${asin}`).value.trim();
+  const commVal = document.querySelector(`.cp-comm-${asin}`).value.trim();
+
+  if(!dateVal){ errCell.textContent = 'Kies een ingangsdatum.'; errCell.style.color = '#f85149'; return; }
+  if(!fbaVal && !cogsVal && !commVal){ errCell.textContent = 'Vul minstens 1 van fba/cogs/commissie in.'; errCell.style.color = '#f85149'; return; }
+
+  const body = { action: 'set-cost-period', asin, effectiveFrom: dateVal };
+  if(fbaVal){
+    const v = parseFloat(fbaVal);
+    if(!(v >= 0) || v > 500){ errCell.textContent = 'FBA-kost moet tussen 0 en 500 zijn.'; errCell.style.color = '#f85149'; return; }
+    body.fba = v;
+  }
+  if(cogsVal){
+    const v = parseFloat(cogsVal);
+    if(!(v >= 0) || v > 500){ errCell.textContent = 'COGS moet tussen 0 en 500 zijn.'; errCell.style.color = '#f85149'; return; }
+    body.cogs = v;
+  }
+  if(commVal){
+    const v = parseFloat(commVal);
+    if(!(v >= 0) || v > 100){ errCell.textContent = 'Commissiepercentage moet tussen 0 en 100 zijn.'; errCell.style.color = '#f85149'; return; }
+    body.commissionPct = v / 100;
+  }
+
+  errCell.textContent = ''; btn.disabled = true;
+  try{
+    const r = await fetch(WORKER_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Worker-Secret': WORKER_SECRET },
+      body: JSON.stringify(body),
+    });
+    const data = await r.json();
+    if(!r.ok){ throw new Error(data.error || ('HTTP ' + r.status)); }
+    const p = PRODUCTS.find(p => p.asin === asin);
+    if(p) p.costHistory = data.costHistory;
+    renderSettingsTable();
+  }catch(e){
+    errCell.textContent = 'Mislukt: ' + e.message; errCell.style.color = '#f85149';
+    btn.disabled = false;
+  }
+}
+
+async function deleteCostPeriod(asin, effectiveFrom, btn){
+  btn.disabled = true; btn.textContent = '...';
+  try{
+    const r = await fetch(WORKER_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Worker-Secret': WORKER_SECRET },
+      body: JSON.stringify({ action: 'delete-cost-period', asin, effectiveFrom }),
+    });
+    const data = await r.json();
+    if(!r.ok){ throw new Error(data.error || ('HTTP ' + r.status)); }
+    const p = PRODUCTS.find(p => p.asin === asin);
+    if(p) p.costHistory = data.costHistory;
+    renderSettingsTable();
+  }catch(e){
+    alert('Verwijderen mislukt: ' + e.message);
+    btn.disabled = false; btn.textContent = 'Verwijderen';
+  }
 }
 
 async function saveSettingsRow(asin, btn){
