@@ -434,10 +434,11 @@ function aggregate(rows, period){
     const g = groups[k];
     g.units += r.units;
     g.sales += r.sales;
-    // r.commission is een PER-STUK bedrag (commissionPct x gross RSP); voor een
-    // correct gewogen gemiddelde eerst met units vermenigvuldigen en in
-    // finalizeMetrics weer door de totale units delen.
-    g.commission += r.commission * r.units;
+    // r.commission is een PER-STUK bedrag (commissionPct x gross RSP); de
+    // Comm+Ad-kolom toont commissie + FBA per stuk. Voor een correct gewogen
+    // gemiddelde eerst met units vermenigvuldigen en in finalizeMetrics weer
+    // door de totale units delen.
+    g.commission += (r.commission + (r.fba || 0)) * r.units;
     g.marginTot += r.marginTot;
     g.cvrSum += r.cvr; g.cvrCount++;
     if(r.adSpend !== undefined){
@@ -452,7 +453,7 @@ function aggregate(rows, period){
     if(!g.byAsin[asin]) g.byAsin[asin] = {asin, units:0, sales:0, commission:0, marginTot:0,
       cvrSum:0, cvrCount:0, adSpend:0, adSales14d:0, adClicks:0, adOrders14d:0, hasAds:false};
     const b = g.byAsin[asin];
-    b.units += r.units; b.sales += r.sales; b.commission += r.commission * r.units; b.marginTot += r.marginTot;
+    b.units += r.units; b.sales += r.sales; b.commission += (r.commission + (r.fba || 0)) * r.units; b.marginTot += r.marginTot;
     b.cvrSum += r.cvr; b.cvrCount++;
     if(r.adSpend !== undefined){
       b.hasAds = true;
@@ -467,7 +468,7 @@ function aggregate(rows, period){
       units: g.units, sales: g.sales,
       grossRsp: g.units ? g.sales / g.units : 0,
       netRsp: g.units ? net / g.units : 0,
-      commission: g.units ? g.commission / g.units : 0, // per stuk: commissionPct x gross RSP
+      commission: g.units ? g.commission / g.units : 0, // per stuk: (commissionPct x gross RSP) + FBA
       marginTot: g.marginTot,
       marginAbs: g.units ? g.marginTot / g.units : 0,
       marginPct: net ? g.marginTot / net : 0,
