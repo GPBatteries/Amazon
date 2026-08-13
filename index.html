@@ -43,8 +43,13 @@
   .chkrow .catname{font-weight:600}
   .chkrow .count{color:var(--muted);font-size:11px;margin-left:auto;font-family:'JetBrains Mono',monospace}
   .prodlist{margin-left:22px;border-left:1px solid var(--line);padding-left:10px}
-  .prodlist .chkrow{font-size:12.5px;color:var(--muted)}
+  .prodlist .chkrow{font-size:12.5px;color:var(--muted);flex:1;padding:6px 0}
   .prodlist .chkrow .asincode{font-family:'JetBrains Mono',monospace;color:var(--muted);font-size:11px}
+  .prodrow{display:flex;align-items:center;gap:4px}
+  .editbtn{flex-shrink:0;width:22px;height:22px;display:flex;align-items:center;justify-content:center;border-radius:6px;border:none;background:none;color:var(--muted);cursor:pointer;opacity:0;transition:.15s}
+  .prodrow:hover .editbtn{opacity:1}
+  .editbtn:hover{background:var(--card);color:var(--accent2)}
+  .editbtn svg{width:13px;height:13px}
   .sidebarhint{font-size:11px;color:var(--muted);line-height:1.4;margin-top:4px}
 
   .insight{display:flex;gap:14px;padding:16px;border-radius:11px;border:1px solid var(--line);background:var(--bg);margin-bottom:10px}
@@ -138,6 +143,7 @@
 
   .tabsrow{display:flex;align-items:stretch;gap:12px;margin-bottom:22px}
   .addbtn{width:48px;display:flex;align-items:center;justify-content:center;border-radius:11px;border:1px solid var(--line);background:var(--card);color:var(--accent2);font-size:22px;font-weight:700;cursor:pointer;transition:.15s;line-height:1}
+  .addbtn svg{width:19px;height:19px}
   .addbtn:hover{background:var(--accent);color:#fff;border-color:var(--accent)}
 
   .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);align-items:center;justify-content:center;z-index:20;padding:20px}
@@ -193,6 +199,9 @@
       <button id="tab-dl" onclick="show('dl')">Download</button>
     </div>
     <button class="addbtn" id="openAddProduct" title="Product toevoegen">+</button>
+    <button class="addbtn" id="openSettings" title="Instellingen">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    </button>
   </div>
 
   <div id="panel-dash" class="panel active">
@@ -263,6 +272,38 @@
     </div>
   </div>
 
+  <div id="panel-settings" class="panel">
+    <div class="box">
+      <h2>Productinstellingen</h2>
+      <div class="sidebarhint" style="margin-bottom:16px">
+        Pas naam en kostenaannames per product aan. Wordt weggeschreven naar products.json --
+        de volgende dagelijkse update herberekent de marge hiermee.
+      </div>
+      <div style="margin-bottom:14px">
+        <select id="settings-catfilter" onchange="renderSettingsTable()"
+          style="padding:9px 12px;border-radius:9px;border:1px solid var(--line);background:var(--bg);color:var(--txt);font-family:inherit;font-size:13px">
+          <option value="">Alle categorie\u00ebn</option>
+          <option value="Alkaline">Alkaline</option>
+          <option value="Specialty">Specialty</option>
+          <option value="Rechargeable">Rechargeable</option>
+          <option value="Accessoires">Accessoires</option>
+        </select>
+      </div>
+      <div class="tablewrap"><table style="table-layout:auto">
+        <thead><tr>
+          <th style="width:auto;text-align:left">Naam</th>
+          <th style="width:auto;text-align:left">ASIN</th>
+          <th style="width:auto;text-align:left">Categorie</th>
+          <th style="width:120px">FBA (\u00a3)</th>
+          <th style="width:120px">COGS (\u00a3)</th>
+          <th style="width:120px">Commissie (%)</th>
+          <th style="width:100px"></th>
+        </tr></thead>
+        <tbody id="settings-tbody"></tbody>
+      </table></div>
+    </div>
+  </div>
+
   <div id="panel-dl" class="panel">
     <div class="dlcard">
       <label style="display:block;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;margin-bottom:6px">Product</label>
@@ -307,6 +348,25 @@
   </div>
 </div>
 
+<div id="assumptionsModal" class="modal-overlay">
+  <div class="modal">
+    <h2>Kostenaannames aanpassen</h2>
+    <p class="modalhint" id="assum-productlabel"></p>
+    <label>FBA-kost (\u00a3 per stuk)</label>
+    <input id="assum-fba" type="number" step="0.01" min="0" placeholder="bv. 2.42" autocomplete="off">
+    <label>COGS (\u00a3 per stuk)</label>
+    <input id="assum-cogs" type="number" step="0.01" min="0" placeholder="bv. 3.96" autocomplete="off">
+    <label>Commissie + AdFee (%)</label>
+    <input id="assum-commission" type="number" step="0.1" min="0" max="100" placeholder="bv. 15.3" autocomplete="off">
+    <div class="modalhint" style="margin-top:2px">Wordt weggeschreven naar products.json. De volgende dagelijkse update herberekent de marge met deze waarden.</div>
+    <div class="modalerr" id="assum-err"></div>
+    <div class="modalbtns">
+      <button class="btn-secondary" id="assum-cancel">Annuleren</button>
+      <button class="btn-primary" id="assum-submit">Opslaan</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const enc = new TextEncoder();
 let PW = null;          // wachtwoord blijft alleen in geheugen, deze sessie
@@ -314,8 +374,9 @@ let RAW_ROWS = [];       // ongefilterde dagdata, 1x geladen bij unlock
 let VAT = 0;
 let PERIOD = 'day';
 let chartInstance = null;
-let PRODUCTS = [];        // uit products.json: [{asin,name,category}]
+let PRODUCTS = [];        // uit products.json: [{asin,name,category,fba?,cogs?,commissionPct?}]
 let SELECTED_ASINS = new Set();
+let ASSUMPTION_DEFAULTS = {}; // fallback-waarden (fba/cogs/commissionPct) voor producten zonder eigen instelling
 const FIXED_CATEGORIES = ['Alkaline','Specialty','Rechargeable','Accessoires'];
 
 // Kolomdefinities voor de Periodedata-tabel -- 'Datum' zelf is altijd zichtbaar
@@ -705,15 +766,29 @@ async function unlock(){
 function show(t){
   document.getElementById('panel-dash').classList.toggle('active', t==='dash');
   document.getElementById('panel-insights').classList.toggle('active', t==='insights');
+  document.getElementById('panel-settings').classList.toggle('active', t==='settings');
   document.getElementById('panel-dl').classList.toggle('active', t==='dl');
   document.getElementById('tab-dash').classList.toggle('active', t==='dash');
   document.getElementById('tab-insights').classList.toggle('active', t==='insights');
   document.getElementById('tab-dl').classList.toggle('active', t==='dl');
+  if(t === 'settings') renderSettingsTable();
 }
 
 // --- Sidebar: categorie- en productfilters, opgebouwd uit products.json ---
+let KNOWN_ASINS = new Set(); // welke ASIN's we al eerder hebben gezien, om nieuwe producten te herkennen
+
 function buildSidebar(){
-  SELECTED_ASINS = new Set(PRODUCTS.map(p => p.asin)); // standaard: alles aan
+  const currentAsins = new Set(PRODUCTS.map(p => p.asin));
+  if(KNOWN_ASINS.size === 0){
+    SELECTED_ASINS = new Set(currentAsins); // eerste keer laden: standaard alles aan
+  }else{
+    // Bij een herbouw (bv. na het opslaan van instellingen) de bestaande
+    // selectie behouden -- niet ongevraagd resetten. Nieuwe producten die
+    // er nog niet waren worden default aangevinkt; verwijderde ASIN's eruit.
+    currentAsins.forEach(a => { if(!KNOWN_ASINS.has(a)) SELECTED_ASINS.add(a); });
+    [...SELECTED_ASINS].forEach(a => { if(!currentAsins.has(a)) SELECTED_ASINS.delete(a); });
+  }
+  KNOWN_ASINS = currentAsins;
 
   const byCat = {};
   PRODUCTS.forEach(p => { (byCat[p.category] = byCat[p.category] || []).push(p); });
@@ -741,10 +816,15 @@ function buildSidebar(){
   prodlistall.innerHTML = catOrder.map(cat => `
     <div class="prodlist" data-cat-products="${cat}">
       ${byCat[cat].map(p => `
-        <label class="chkrow" data-asin="${p.asin}">
-          <input type="checkbox" checked onchange="onProductToggle('${p.asin}', this.checked)">
-          <span>${p.name}</span>
-        </label>`).join('')}
+        <div class="prodrow" data-asin="${p.asin}">
+          <label class="chkrow">
+            <input type="checkbox" checked onchange="onProductToggle('${p.asin}', this.checked)">
+            <span>${p.name}</span>
+          </label>
+          <button class="editbtn" onclick="openAssumptionsModal('${p.asin}')" title="Kostenaannames aanpassen">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+          </button>
+        </div>`).join('')}
     </div>`).join('');
 
   refreshView();
@@ -852,6 +932,11 @@ document.addEventListener('click', (e) => {
 
 function render(d){
   VAT = (d.assumptions && d.assumptions.vat) || 0;
+  ASSUMPTION_DEFAULTS = {
+    fba: d.assumptions && d.assumptions.fbaDefault,
+    cogs: d.assumptions && d.assumptions.cogsDefault,
+    commissionPct: d.assumptions && d.assumptions.commissionPctDefault,
+  };
   document.getElementById('updated').textContent = d.generated_utc;
   document.getElementById('dl-updated').textContent = d.generated_utc;
 
@@ -1029,6 +1114,155 @@ document.getElementById('openAddProduct').addEventListener('click', openAddModal
 document.getElementById('add-cancel').addEventListener('click', closeAddModal);
 document.getElementById('add-submit').addEventListener('click', submitAddProduct);
 document.getElementById('addModal').addEventListener('click', e => { if(e.target.id === 'addModal') closeAddModal(); });
+
+function openAssumptionsModal(asin){
+  const p = PRODUCTS.find(p => p.asin === asin);
+  if(!p) return;
+  document.getElementById('assum-productlabel').textContent = `${p.name} (${asin})`;
+  // Huidige waarde tonen indien al eens ingesteld voor dit product, anders
+  // de fallback-default (zodat je ziet wat er nu feitelijk gebruikt wordt).
+  document.getElementById('assum-fba').value = p.fba !== undefined ? p.fba : (ASSUMPTION_DEFAULTS.fba ?? '');
+  document.getElementById('assum-cogs').value = p.cogs !== undefined ? p.cogs : (ASSUMPTION_DEFAULTS.cogs ?? '');
+  document.getElementById('assum-commission').value = p.commissionPct !== undefined
+    ? (p.commissionPct * 100).toFixed(1)
+    : (ASSUMPTION_DEFAULTS.commissionPct !== undefined ? (ASSUMPTION_DEFAULTS.commissionPct * 100).toFixed(1) : '');
+  document.getElementById('assum-err').textContent = '';
+  document.getElementById('assumptionsModal').dataset.asin = asin;
+  document.getElementById('assumptionsModal').classList.add('active');
+}
+function closeAssumptionsModal(){
+  document.getElementById('assumptionsModal').classList.remove('active');
+}
+
+async function submitAssumptions(){
+  const asin = document.getElementById('assumptionsModal').dataset.asin;
+  const errEl = document.getElementById('assum-err');
+  const btn = document.getElementById('assum-submit');
+  const fbaVal = document.getElementById('assum-fba').value.trim();
+  const cogsVal = document.getElementById('assum-cogs').value.trim();
+  const commissionVal = document.getElementById('assum-commission').value.trim();
+
+  if(!fbaVal && !cogsVal && !commissionVal){
+    errEl.textContent = 'Vul minstens 1 veld in.'; return;
+  }
+  const body = { action: 'update-assumptions', asin };
+  if(fbaVal){
+    const v = parseFloat(fbaVal);
+    if(!(v >= 0) || v > 500){ errEl.textContent = 'FBA-kost moet een getal tussen 0 en 500 zijn.'; return; }
+    body.fba = v;
+  }
+  if(cogsVal){
+    const v = parseFloat(cogsVal);
+    if(!(v >= 0) || v > 500){ errEl.textContent = 'COGS moet een getal tussen 0 en 500 zijn.'; return; }
+    body.cogs = v;
+  }
+  if(commissionVal){
+    const v = parseFloat(commissionVal);
+    if(!(v >= 0) || v > 100){ errEl.textContent = 'Commissiepercentage moet tussen 0 en 100 zijn.'; return; }
+    body.commissionPct = v / 100; // UI toont procenten, opslag gebeurt als fractie
+  }
+
+  errEl.textContent = '';
+  btn.disabled = true; btn.textContent = 'Opslaan...';
+  try{
+    const r = await fetch(WORKER_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Worker-Secret': WORKER_SECRET },
+      body: JSON.stringify(body),
+    });
+    const data = await r.json();
+    if(!r.ok){ throw new Error(data.error || ('HTTP ' + r.status)); }
+    closeAssumptionsModal();
+    alert('Kostenaannames voor ' + asin + ' opgeslagen. De volgende dagelijkse update herberekent de marge hiermee.');
+  }catch(e){
+    errEl.textContent = 'Mislukt: ' + e.message;
+  }
+  btn.disabled = false; btn.textContent = 'Opslaan';
+}
+
+document.getElementById('assum-cancel').addEventListener('click', closeAssumptionsModal);
+document.getElementById('assum-submit').addEventListener('click', submitAssumptions);
+document.getElementById('assumptionsModal').addEventListener('click', e => { if(e.target.id === 'assumptionsModal') closeAssumptionsModal(); });
+
+// --- Instellingen-tabblad: naam + kostenaannames per product, filterbaar op categorie ---
+function renderSettingsTable(){
+  const catFilter = document.getElementById('settings-catfilter').value;
+  const rows = catFilter ? PRODUCTS.filter(p => p.category === catFilter) : PRODUCTS;
+  const tbody = document.getElementById('settings-tbody');
+
+  tbody.innerHTML = rows.map(p => {
+    const fba = p.fba !== undefined ? p.fba : (ASSUMPTION_DEFAULTS.fba ?? '');
+    const cogs = p.cogs !== undefined ? p.cogs : (ASSUMPTION_DEFAULTS.cogs ?? '');
+    const commission = p.commissionPct !== undefined
+      ? (p.commissionPct * 100).toFixed(1)
+      : (ASSUMPTION_DEFAULTS.commissionPct !== undefined ? (ASSUMPTION_DEFAULTS.commissionPct * 100).toFixed(1) : '');
+    return `
+      <tr data-asin="${p.asin}">
+        <td style="text-align:left"><input type="text" class="set-name" value="${p.name.replace(/"/g,'&quot;')}"
+          style="width:100%;background:none;border:1px solid transparent;border-radius:6px;padding:5px 7px;color:var(--txt);font-family:inherit;font-size:13px"
+          onfocus="this.style.borderColor='var(--line)'" onblur="this.style.borderColor='transparent'"></td>
+        <td style="text-align:left;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--muted)">${p.asin}</td>
+        <td style="text-align:left;color:var(--muted)">${p.category}</td>
+        <td><input type="number" step="0.01" min="0" class="set-fba" value="${fba}"
+          style="width:90px;background:none;border:1px solid var(--line);border-radius:6px;padding:5px 7px;color:var(--txt);font-family:inherit;font-size:13px;text-align:right"></td>
+        <td><input type="number" step="0.01" min="0" class="set-cogs" value="${cogs}"
+          style="width:90px;background:none;border:1px solid var(--line);border-radius:6px;padding:5px 7px;color:var(--txt);font-family:inherit;font-size:13px;text-align:right"></td>
+        <td><input type="number" step="0.1" min="0" max="100" class="set-commission" value="${commission}"
+          style="width:90px;background:none;border:1px solid var(--line);border-radius:6px;padding:5px 7px;color:var(--txt);font-family:inherit;font-size:13px;text-align:right"></td>
+        <td><button class="btn-primary" style="padding:7px 14px;font-size:12.5px" onclick="saveSettingsRow('${p.asin}', this)">Opslaan</button></td>
+      </tr>
+      <tr class="set-errrow" data-asin-err="${p.asin}"><td colspan="7" style="border-top:none;padding-top:0"></td></tr>`;
+  }).join('');
+}
+
+async function saveSettingsRow(asin, btn){
+  const tr = document.querySelector(`tr[data-asin="${asin}"]`);
+  const errCell = document.querySelector(`tr[data-asin-err="${asin}"] td`);
+  const name = tr.querySelector('.set-name').value.trim();
+  const fbaVal = tr.querySelector('.set-fba').value.trim();
+  const cogsVal = tr.querySelector('.set-cogs').value.trim();
+  const commissionVal = tr.querySelector('.set-commission').value.trim();
+
+  if(!name){ errCell.textContent = 'Naam mag niet leeg zijn.'; errCell.style.color = '#f85149'; return; }
+
+  const body = { action: 'update-assumptions', asin, name };
+  if(fbaVal){
+    const v = parseFloat(fbaVal);
+    if(!(v >= 0) || v > 500){ errCell.textContent = 'FBA-kost moet tussen 0 en 500 zijn.'; errCell.style.color = '#f85149'; return; }
+    body.fba = v;
+  }
+  if(cogsVal){
+    const v = parseFloat(cogsVal);
+    if(!(v >= 0) || v > 500){ errCell.textContent = 'COGS moet tussen 0 en 500 zijn.'; errCell.style.color = '#f85149'; return; }
+    body.cogs = v;
+  }
+  if(commissionVal){
+    const v = parseFloat(commissionVal);
+    if(!(v >= 0) || v > 100){ errCell.textContent = 'Commissiepercentage moet tussen 0 en 100 zijn.'; errCell.style.color = '#f85149'; return; }
+    body.commissionPct = v / 100;
+  }
+
+  errCell.textContent = ''; btn.disabled = true; const oldLabel = btn.textContent; btn.textContent = '...';
+  try{
+    const r = await fetch(WORKER_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Worker-Secret': WORKER_SECRET },
+      body: JSON.stringify(body),
+    });
+    const data = await r.json();
+    if(!r.ok){ throw new Error(data.error || ('HTTP ' + r.status)); }
+    // Lokale kopie in PRODUCTS bijwerken zodat de rest van het dashboard (sidebar, modal) meteen klopt.
+    const p = PRODUCTS.find(p => p.asin === asin);
+    if(p){ p.name = name; if(body.fba !== undefined) p.fba = body.fba; if(body.cogs !== undefined) p.cogs = body.cogs; if(body.commissionPct !== undefined) p.commissionPct = body.commissionPct; }
+    buildSidebar();
+    errCell.textContent = 'Opgeslagen.'; errCell.style.color = '#3fb950';
+  }catch(e){
+    errCell.textContent = 'Mislukt: ' + e.message; errCell.style.color = '#f85149';
+  }
+  btn.disabled = false; btn.textContent = oldLabel;
+}
+
+document.getElementById('openSettings').addEventListener('click', () => show('settings'));
 </script>
 </body>
 </html>

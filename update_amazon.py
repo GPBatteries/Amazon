@@ -22,10 +22,10 @@ PRODUCTS_FILE = "products.json"
 # Aannames (bewerkbaar in de Excel; dit zijn de startwaarden) -- gelden nu
 # nog voor alle producten gelijk. Per-product aannames kunnen later aan
 # products.json toegevoegd worden als daar behoefte aan is.
-VAT_RATE = 0.20              # net = gross / (1 + BTW)
-COMMISSION_ADFEE_PCT = 0.153 # 15,3% van gross RSP
-FBA = 2.42                   # GBP per stuk
-COGS = 3.96                  # GBP per stuk
+VAT_RATE = 0.20                      # net = gross / (1 + BTW) -- geldt voor alle producten gelijk
+COMMISSION_ADFEE_PCT_DEFAULT = 0.153 # 15,3% van gross RSP -- fallback als een product geen eigen waarde heeft
+FBA_DEFAULT = 2.42                   # GBP per stuk -- fallback
+COGS_DEFAULT = 3.96                  # GBP per stuk -- fallback
 
 CSV_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={DAILY_IMP_GID}"
 
@@ -100,7 +100,7 @@ def load_daily_imp() -> pd.DataFrame:
 # ----------------------------------------------------------------------------
 # Excel bouwen
 # ----------------------------------------------------------------------------
-def build(df: pd.DataFrame, asin: str):
+def build(df: pd.DataFrame, asin: str, fba: float, cogs: float, commission_pct: float):
     output_path = os.path.join("output", f"Amazon_{asin}.xlsx")
     wb = Workbook()
 
@@ -150,9 +150,9 @@ def build(df: pd.DataFrame, asin: str):
     rep["B16"] = "Aannames"
     assum = [
         (17, "BTW", VAT_RATE, "0.0%"),
-        (18, "Commission + AdFee %", COMMISSION_ADFEE_PCT, "0.0%"),
-        (19, "FBA (\u00a3/stuk)", FBA, "\u00a3#,##0.00"),
-        (20, "COGS (\u00a3/stuk)", COGS, "\u00a3#,##0.00"),
+        (18, "Commission + AdFee %", commission_pct, "0.0%"),
+        (19, "FBA (\u00a3/stuk)", fba, "\u00a3#,##0.00"),
+        (20, "COGS (\u00a3/stuk)", cogs, "\u00a3#,##0.00"),
     ]
     for r, name, val, fmt in assum:
         rep.cell(r, 2, name)
@@ -245,7 +245,7 @@ def load_ads_spend() -> dict:
     return {(str(r["date"]), r["childAsin"]): r for _, r in ads_df.iterrows()}
 
 
-def compute_rows(df: pd.DataFrame, ads_spend: dict, asin: str):
+def compute_rows(df: pd.DataFrame, ads_spend: dict, asin: str, fba: float, cogs: float, commission_pct: float):
     ads_spend = ads_spend or {}
     rows = []
     for _, r in df.iterrows():
@@ -253,8 +253,8 @@ def compute_rows(df: pd.DataFrame, ads_spend: dict, asin: str):
         sales = float(r["orderedProductSales"])
         gross = sales / units if units else 0.0
         net = gross / (1 + VAT_RATE)
-        commission = COMMISSION_ADFEE_PCT * gross
-        margin_abs = net - commission - FBA - COGS
+        commission = commission_pct * gross
+        margin_abs = net - commission - fba - cogs
         margin_pct = (margin_abs / net) if net else 0.0
 
         row = {
@@ -265,8 +265,8 @@ def compute_rows(df: pd.DataFrame, ads_spend: dict, asin: str):
             "grossRsp": gross,
             "netRsp": net,
             "commission": commission,
-            "fba": FBA,
-            "cogs": COGS,
+            "fba": fba,
+            "cogs": cogs,
             "marginPct": margin_pct,
             "marginAbs": margin_abs,
             "marginTot": margin_abs * units,
@@ -315,14 +315,21 @@ def main():
     products_meta = []
     for p in products:
         asin, name, category = p["asin"], p.get("name", p["asin"]), p.get("category", "Overig")
+        # Per-product kostenaannames -- optioneel per ASIN instelbaar (via het
+        # dashboard, zie index.html + de Cloudflare Worker). Ontbreekt een
+        # veld voor dit product, dan geldt de globale fallback-waarde.
+        fba = float(p.get("fba", FBA_DEFAULT))
+        cogs = float(p.get("cogs", COGS_DEFAULT))
+        commission_pct = float(p.get("commissionPct", COMMISSION_ADFEE_PCT_DEFAULT))
+
         pdf = full_df[full_df["childAsin"] == asin].reset_index(drop=True)
         if pdf.empty:
             print(f"LET OP: geen data voor {asin} ({name}) -- nog niet opgehaald, of nog geen sales. "
                   f"Wordt overgeslagen in data.json totdat er data is.")
             continue
 
-        n, output_path = build(pdf, asin)
-        rows = compute_rows(pdf, ads_spend_all, asin)
+        n, output_path = build(pdf, asin, fba, cogs, commission_pct)
+        rows = compute_rows(pdf, ads_spend_all, asin, fba, cogs, commission_pct)
         all_rows.extend(rows)
         products_meta.append({
             "asin": asin,
@@ -332,8 +339,12 @@ def main():
             "days": n,
             "rows": int(len(pdf)),
             "last_date": str(max(pdf["date"])),
+            "fba": fba,
+            "cogs": cogs,
+            "commissionPct": commission_pct,
         })
-        print(f"OK: {output_path} ({n} dagkolommen, {len(pdf)} bronrijen voor {asin})")
+        print(f"OK: {output_path} ({n} dagkolommen, {len(pdf)} bronrijen voor {asin}) "
+              f"[fba={fba} cogs={cogs} commissie={commission_pct*100:.1f}%]")
 
     if not products_meta:
         raise SystemExit("Geen van de producten in products.json heeft data -- niets gebouwd.")
@@ -350,9 +361,9 @@ def main():
         "generated_utc": generated,
         "assumptions": {
             "vat": VAT_RATE,
-            "commissionPct": COMMISSION_ADFEE_PCT,
-            "fba": FBA,
-            "cogs": COGS,
+            "commissionPctDefault": COMMISSION_ADFEE_PCT_DEFAULT,
+            "fbaDefault": FBA_DEFAULT,
+            "cogsDefault": COGS_DEFAULT,
         },
         "products": products_meta,
         "rows": all_rows,
