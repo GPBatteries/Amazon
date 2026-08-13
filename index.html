@@ -389,7 +389,7 @@ const COLUMN_DEFS = [
   {key:'sales', label:'Sales \u00a3', render:r => gbp(r.sales), raw:r => r.sales, w:100},
   {key:'grossRsp', label:'RSP gross', render:r => gbp(r.grossRsp), raw:r => r.grossRsp, w:96},
   {key:'netRsp', label:'RSP net', render:r => gbp(r.netRsp), raw:r => r.netRsp, w:90},
-  {key:'commission', label:'Comm+Ad', render:r => gbp(r.commission), raw:r => r.commission, w:96},
+  {key:'commission', label:'Comm+Ad Tot.', render:r => gbp(r.commission), raw:r => r.commission, w:112},
   {key:'marginPct', label:'Marge %', render:r => pct(r.marginPct), cls:'pos', raw:r => r.marginPct, w:86},
   {key:'marginAbs', label:'Marge abs', render:r => gbp(r.marginAbs), raw:r => r.marginAbs, w:96},
   {key:'marginTot', label:'Marge Tot.', render:r => gbp(r.marginTot), raw:r => r.marginTot, w:100},
@@ -434,10 +434,9 @@ function aggregate(rows, period){
     const g = groups[k];
     g.units += r.units;
     g.sales += r.sales;
-    // r.commission is een PER-STUK bedrag (commissionPct x gross RSP); de
-    // Comm+Ad-kolom toont commissie + FBA per stuk. Voor een correct gewogen
-    // gemiddelde eerst met units vermenigvuldigen en in finalizeMetrics weer
-    // door de totale units delen.
+    // r.commission is een PER-STUK bedrag (commissionPct x gross RSP). De
+    // Comm+Ad-kolom toont het TOTAAL van commissie + FBA over de periode, dus
+    // per stuk x units optellen -- net als Marge Tot. en Ad Spend.
     g.commission += (r.commission + (r.fba || 0)) * r.units;
     g.marginTot += r.marginTot;
     g.cvrSum += r.cvr; g.cvrCount++;
@@ -468,7 +467,7 @@ function aggregate(rows, period){
       units: g.units, sales: g.sales,
       grossRsp: g.units ? g.sales / g.units : 0,
       netRsp: g.units ? net / g.units : 0,
-      commission: g.units ? g.commission / g.units : 0, // per stuk: (commissionPct x gross RSP) + FBA
+      commission: g.commission, // totaal over de periode: som van ((commissionPct x gross RSP) + FBA) x units
       marginTot: g.marginTot,
       marginAbs: g.units ? g.marginTot / g.units : 0,
       marginPct: net ? g.marginTot / net : 0,
